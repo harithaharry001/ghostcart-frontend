@@ -1,0 +1,854 @@
+openapi: 3.0.3
+info:
+  title: GhostCart AP2 Demo API
+  description: |
+    REST API for GhostCart demonstrating Agent Payments Protocol v0.1 with AWS Strands SDK.
+
+    This API provides endpoints for:
+    - Chat interaction with AI shopping agents (Supervisor, HP Shopping, HNP Delegate)
+    - Server-Sent Events for real-time agent streaming
+    - Mandate signing for user authorization
+    - Transaction chain retrieval for audit trails
+    - Monitoring job management for autonomous purchasing
+    - Product search and payment method retrieval
+
+    Protocol Compliance: All mandate structures match AP2 v0.1 specification from https://ap2-protocol.org/specification/
+  version: 1.0.0
+  contact:
+    name: GhostCart Team
+    email: support@ghostcart-demo.com
+
+servers:
+  - url: http://localhost:8000/api
+    description: Local development server
+
+tags:
+  - name: Chat
+    description: Conversational interface with AI agents
+  - name: Streaming
+    description: Real-time event streaming via SSE
+  - name: Mandates
+    description: AP2 mandate operations (signing, retrieval)
+  - name: Transactions
+    description: Transaction results and mandate chains
+  - name: Monitoring
+    description: Human-not-present autonomous monitoring jobs
+  - name: Products
+    description: Product search (mock merchant API)
+  - name: Payments
+    description: Payment methods (mock credentials provider)
+
+paths:
+  /chat:
+    post:
+      tags: [Chat]
+      summary: Send message to Supervisor Agent
+      description: |
+        Submits user message to Supervisor Agent for routing. Agent analyzes intent linguistically
+        and routes to HP Shopping Agent (immediate purchase) or HNP Delegate Agent (monitoring setup).
+      operationId: sendChatMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message, session_id]
+              properties:
+                message:
+                  type: string
+                  description: User's natural language message
+                  example: "Find me a coffee maker under 70 dollars"
+                session_id:
+                  type: string
+                  format: uuid
+                  description: Session identifier for conversation continuity
+                  example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Agent response with routing decision
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /stream:
+    get:
+      tags: [Streaming]
+      summary: Server-Sent Events stream for real-time updates
+      description: |
+        Opens SSE connection for real-time agent messages, product results, mandate updates,
+        payment processing status, and error notifications. Frontend connects with EventSource API.
+      operationId: getEventStream
+      parameters:
+        - name: session_id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Session identifier to receive events for
+      responses:
+        '200':
+          description: SSE stream opened
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  SSE formatted events with structure:
+                  event: <event_type>
+                  data: <JSON payload>
+
+                  Event types: agent_thought, product_results, mandate_created, signature_request,
+                  payment_processing, result, error
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /mandates/sign:
+    post:
+      tags: [Mandates]
+      summary: User signs mandate (Cart or Intent)
+      description: |
+        Creates cryptographic signature for mandate. In HP flow, user signs Cart (authorization).
+        In HNP flow, user signs Intent (pre-authorization). Uses HMAC-SHA256 for demo.
+      operationId: signMandate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mandate_id, mandate_type, user_id]
+              properties:
+                mandate_id:
+                  type: string
+                  description: Mandate identifier (intent_hp_abc, cart_xyz, etc.)
+                  example: "cart_abc123"
+                mandate_type:
+                  type: string
+                  enum: [intent, cart]
+                  description: Type of mandate being signed
+                  example: "cart"
+                user_id:
+                  type: string
+                  description: User identifier
+                  example: "user_demo_001"
+      responses:
+        '200':
+          description: Mandate signed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [signed_mandate, signature]
+                properties:
+                  signed_mandate:
+                    oneOf:
+                      - $ref: '#/components/schemas/IntentMandate'
+                      - $ref: '#/components/schemas/CartMandate'
+                  signature:
+                    $ref: '#/components/schemas/SignatureObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /transactions/{transaction_id}/chain:
+    get:
+      tags: [Transactions]
+      summary: Get mandate chain for transaction
+      description: |
+        Retrieves complete mandate chain (Intent -> Cart -> Payment -> Transaction)
+        for audit trail visualization. Intent may be null for HP flow context-only mandates.
+      operationId: getTransactionChain
+      parameters:
+        - name: transaction_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Transaction identifier
+          example: "txn_abc123"
+      responses:
+        '200':
+          description: Mandate chain retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MandateChain'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /monitoring/jobs:
+    get:
+      tags: [Monitoring]
+      summary: List monitoring jobs for user
+      description: Retrieves all monitoring jobs (active, completed, expired) for specified user.
+      operationId: listMonitoringJobs
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: User identifier
+          example: "user_demo_001"
+      responses:
+        '200':
+          description: Monitoring jobs list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobs]
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MonitoringJob'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /monitoring/jobs/{job_id}:
+    delete:
+      tags: [Monitoring]
+      summary: Cancel monitoring job
+      description: Cancels active monitoring job and removes from APScheduler.
+      operationId: cancelMonitoringJob
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Job identifier
+          example: "job_mon_xyz789"
+      responses:
+        '200':
+          description: Job cancelled successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /products/search:
+    get:
+      tags: [Products]
+      summary: Search products
+      description: Searches mock merchant product catalog by query terms and optional max price.
+      operationId: searchProducts
+      parameters:
+        - name: query
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search terms
+          example: "coffee maker"
+        - name: max_price
+          in: query
+          required: false
+          schema:
+            type: number
+            format: float
+          description: Maximum price in dollars
+          example: 70.0
+      responses:
+        '200':
+          description: Product search results
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [products]
+                properties:
+                  products:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /payment-methods:
+    get:
+      tags: [Payments]
+      summary: Get user payment methods
+      description: |
+        Retrieves tokenized payment methods from mock credentials provider.
+        Returns 2-3 methods with tokenized credentials (never raw card numbers).
+      operationId: getPaymentMethods
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: User identifier
+          example: "user_demo_001"
+      responses:
+        '200':
+          description: Payment methods list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [payment_methods]
+                properties:
+                  payment_methods:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PaymentMethod'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  schemas:
+    ChatResponse:
+      type: object
+      required: [response, session_id, flow_type]
+      properties:
+        response:
+          type: string
+          description: Agent's response message
+          example: "I found 3 coffee makers under $70. Here are your options..."
+        session_id:
+          type: string
+          format: uuid
+          description: Session identifier
+        flow_type:
+          type: string
+          enum: [hp, hnp, clarification, none]
+          description: Routing decision made by Supervisor
+          example: "hp"
+
+    SignatureObject:
+      type: object
+      required: [algorithm, signer_identity, timestamp, signature_value]
+      properties:
+        algorithm:
+          type: string
+          enum: [HMAC-SHA256]
+          description: Signature algorithm (mocks production ECDSA)
+          example: "HMAC-SHA256"
+        signer_identity:
+          type: string
+          description: Who signed (user ID, agent ID, payment agent ID)
+          example: "user_demo_001"
+        timestamp:
+          type: string
+          format: date-time
+          description: When signature created (ISO 8601)
+          example: "2025-10-17T14:30:00Z"
+        signature_value:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: HMAC-SHA256 digest in hexadecimal
+          example: "a1b2c3d4e5f6..."
+
+    IntentMandate:
+      type: object
+      required: [mandate_id, mandate_type, user_id, scenario, product_query]
+      properties:
+        mandate_id:
+          type: string
+          pattern: "^intent_(hp|hnp)_"
+          description: Intent identifier with prefix
+          example: "intent_hnp_abc123"
+        mandate_type:
+          type: string
+          enum: [intent]
+          example: "intent"
+        user_id:
+          type: string
+          example: "user_demo_001"
+        scenario:
+          type: string
+          enum: [human_present, human_not_present]
+          description: Flow type
+          example: "human_not_present"
+        product_query:
+          type: string
+          description: User's search terms or product description
+          example: "Apple AirPods Pro"
+        constraints:
+          $ref: '#/components/schemas/ConstraintsObject'
+        expiration:
+          type: string
+          format: date-time
+          description: When Intent authority expires (required for HNP)
+          example: "2025-10-24T14:30:00Z"
+        signature:
+          $ref: '#/components/schemas/SignatureObject'
+
+    ConstraintsObject:
+      type: object
+      required: [max_price_cents, max_delivery_days, currency]
+      properties:
+        max_price_cents:
+          type: integer
+          minimum: 1
+          description: Maximum price in cents
+          example: 18000
+        max_delivery_days:
+          type: integer
+          minimum: 1
+          maximum: 30
+          description: Maximum delivery time in days
+          example: 2
+        currency:
+          type: string
+          enum: [USD]
+          example: "USD"
+
+    CartMandate:
+      type: object
+      required: [mandate_id, mandate_type, items, total, merchant_info, delivery_estimate_days, references, signature]
+      properties:
+        mandate_id:
+          type: string
+          pattern: "^cart_"
+          example: "cart_xyz789"
+        mandate_type:
+          type: string
+          enum: [cart]
+          example: "cart"
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LineItem'
+        total:
+          $ref: '#/components/schemas/TotalObject'
+        merchant_info:
+          $ref: '#/components/schemas/MerchantInfo'
+        delivery_estimate_days:
+          type: integer
+          minimum: 0
+          example: 2
+        references:
+          $ref: '#/components/schemas/ReferencesObject'
+        signature:
+          $ref: '#/components/schemas/SignatureObject'
+
+    LineItem:
+      type: object
+      required: [product_id, product_name, quantity, unit_price_cents, line_total_cents]
+      properties:
+        product_id:
+          type: string
+          example: "prod_coffee_001"
+        product_name:
+          type: string
+          example: "Philips HD7462 Coffee Maker"
+        quantity:
+          type: integer
+          minimum: 1
+          example: 1
+        unit_price_cents:
+          type: integer
+          minimum: 0
+          example: 6900
+        line_total_cents:
+          type: integer
+          minimum: 0
+          example: 6900
+
+    TotalObject:
+      type: object
+      required: [subtotal_cents, tax_cents, shipping_cents, grand_total_cents, currency]
+      properties:
+        subtotal_cents:
+          type: integer
+          minimum: 0
+          example: 6900
+        tax_cents:
+          type: integer
+          minimum: 0
+          example: 500
+        shipping_cents:
+          type: integer
+          minimum: 0
+          example: 0
+        grand_total_cents:
+          type: integer
+          minimum: 0
+          example: 7400
+        currency:
+          type: string
+          enum: [USD]
+          example: "USD"
+
+    MerchantInfo:
+      type: object
+      required: [merchant_id, merchant_name, merchant_url]
+      properties:
+        merchant_id:
+          type: string
+          example: "ghostcart_demo"
+        merchant_name:
+          type: string
+          example: "GhostCart Demo Merchant"
+        merchant_url:
+          type: string
+          format: uri
+          example: "https://demo.ghostcart.com"
+
+    ReferencesObject:
+      type: object
+      properties:
+        intent_mandate_id:
+          type: string
+          description: Links to Intent (required for HNP, optional for HP)
+          example: "intent_hnp_abc123"
+        transaction_id:
+          type: string
+          description: Groups mandates for transaction
+          example: "txn_xyz789"
+
+    PaymentMandate:
+      type: object
+      required: [mandate_id, mandate_type, references, amount_cents, currency, payment_credentials, human_not_present, timestamp, signature]
+      properties:
+        mandate_id:
+          type: string
+          pattern: "^payment_"
+          example: "payment_def456"
+        mandate_type:
+          type: string
+          enum: [payment]
+          example: "payment"
+        references:
+          $ref: '#/components/schemas/PaymentReferencesObject'
+        amount_cents:
+          type: integer
+          minimum: 1
+          example: 7400
+        currency:
+          type: string
+          enum: [USD]
+          example: "USD"
+        payment_credentials:
+          $ref: '#/components/schemas/PaymentCredentials'
+        human_not_present:
+          type: boolean
+          description: Signals autonomous transaction to payment network
+          example: false
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-10-17T14:35:00Z"
+        signature:
+          $ref: '#/components/schemas/SignatureObject'
+
+    PaymentReferencesObject:
+      type: object
+      required: [cart_mandate_id, transaction_id]
+      properties:
+        cart_mandate_id:
+          type: string
+          example: "cart_xyz789"
+        transaction_id:
+          type: string
+          example: "txn_abc123"
+
+    PaymentCredentials:
+      type: object
+      required: [payment_token, payment_method_type, last_four_digits, expiration_month, expiration_year]
+      properties:
+        payment_token:
+          type: string
+          pattern: "^tok_"
+          description: Tokenized credential (never raw card number)
+          example: "tok_visa_4242"
+        payment_method_type:
+          type: string
+          enum: [visa, mastercard, amex, discover]
+          example: "visa"
+        last_four_digits:
+          type: string
+          pattern: "^[0-9]{4}$"
+          example: "4242"
+        expiration_month:
+          type: integer
+          minimum: 1
+          maximum: 12
+          example: 12
+        expiration_year:
+          type: integer
+          minimum: 2025
+          example: 2027
+        billing_address:
+          $ref: '#/components/schemas/AddressObject'
+
+    AddressObject:
+      type: object
+      required: [street, city, state, postal_code, country]
+      properties:
+        street:
+          type: string
+          example: "123 Main St"
+        city:
+          type: string
+          example: "San Francisco"
+        state:
+          type: string
+          example: "CA"
+        postal_code:
+          type: string
+          example: "94105"
+        country:
+          type: string
+          enum: [US]
+          example: "US"
+
+    Transaction:
+      type: object
+      required: [transaction_id, cart_mandate_id, payment_mandate_id, user_id, status, amount_cents, currency, created_at]
+      properties:
+        transaction_id:
+          type: string
+          pattern: "^txn_"
+          example: "txn_abc123"
+        intent_mandate_id:
+          type: string
+          nullable: true
+          description: Nullable for HP flow context-only
+          example: "intent_hnp_xyz"
+        cart_mandate_id:
+          type: string
+          example: "cart_xyz789"
+        payment_mandate_id:
+          type: string
+          example: "payment_def456"
+        user_id:
+          type: string
+          example: "user_demo_001"
+        status:
+          type: string
+          enum: [authorized, declined, expired, failed]
+          example: "authorized"
+        authorization_code:
+          type: string
+          nullable: true
+          description: Present on success
+          example: "AUTH_xy45z8"
+        decline_reason:
+          type: string
+          nullable: true
+          description: Present on decline
+          example: "Insufficient funds"
+        decline_code:
+          type: string
+          nullable: true
+          description: AP2 error code on decline
+          example: "ap2:payment:declined"
+        amount_cents:
+          type: integer
+          minimum: 0
+          example: 7400
+        currency:
+          type: string
+          enum: [USD]
+          example: "USD"
+        created_at:
+          type: string
+          format: date-time
+          example: "2025-10-17T14:35:00Z"
+
+    MandateChain:
+      type: object
+      required: [cart, payment, transaction]
+      properties:
+        intent:
+          allOf:
+            - $ref: '#/components/schemas/IntentMandate'
+            - nullable: true
+              description: Null for HP flow context-only
+        cart:
+          $ref: '#/components/schemas/CartMandate'
+        payment:
+          $ref: '#/components/schemas/PaymentMandate'
+        transaction:
+          $ref: '#/components/schemas/Transaction'
+
+    MonitoringJob:
+      type: object
+      required: [job_id, intent_mandate_id, user_id, product_query, constraints, schedule_interval_minutes, active, created_at, expires_at]
+      properties:
+        job_id:
+          type: string
+          example: "job_mon_xyz789"
+        intent_mandate_id:
+          type: string
+          example: "intent_hnp_abc123"
+        user_id:
+          type: string
+          example: "user_demo_001"
+        product_query:
+          type: string
+          example: "Apple AirPods Pro"
+        constraints:
+          $ref: '#/components/schemas/ConstraintsObject'
+        schedule_interval_minutes:
+          type: integer
+          minimum: 1
+          example: 5
+        active:
+          type: boolean
+          example: true
+        last_check_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: "2025-10-17T14:30:00Z"
+        created_at:
+          type: string
+          format: date-time
+          example: "2025-10-17T14:00:00Z"
+        expires_at:
+          type: string
+          format: date-time
+          example: "2025-10-24T14:00:00Z"
+
+    Product:
+      type: object
+      required: [product_id, name, description, category, price_cents, stock_status, delivery_estimate_days, image_url]
+      properties:
+        product_id:
+          type: string
+          example: "prod_coffee_001"
+        name:
+          type: string
+          example: "Philips HD7462 Coffee Maker"
+        description:
+          type: string
+          example: "12-cup programmable coffee maker with timer"
+        category:
+          type: string
+          enum: [Electronics, Kitchen, Fashion, Home]
+          example: "Kitchen"
+        price_cents:
+          type: integer
+          minimum: 0
+          example: 6900
+        stock_status:
+          type: string
+          enum: [in_stock, out_of_stock]
+          example: "in_stock"
+        delivery_estimate_days:
+          type: integer
+          minimum: 0
+          example: 2
+        image_url:
+          type: string
+          format: uri
+          example: "https://demo.ghostcart.com/images/coffee-maker.jpg"
+
+    PaymentMethod:
+      type: object
+      required: [payment_token, payment_method_type, last_four_digits, expiration_month, expiration_year]
+      properties:
+        payment_token:
+          type: string
+          pattern: "^tok_"
+          example: "tok_visa_4242"
+        payment_method_type:
+          type: string
+          enum: [visa, mastercard, amex, discover]
+          example: "visa"
+        last_four_digits:
+          type: string
+          pattern: "^[0-9]{4}$"
+          example: "4242"
+        expiration_month:
+          type: integer
+          minimum: 1
+          maximum: 12
+          example: 12
+        expiration_year:
+          type: integer
+          minimum: 2025
+          example: 2027
+        billing_address:
+          $ref: '#/components/schemas/AddressObject'
+
+    ErrorResponse:
+      type: object
+      required: [error_code, message]
+      properties:
+        error_code:
+          type: string
+          description: AP2 standard error code
+          enum:
+            - ap2:mandate:chain_invalid
+            - ap2:mandate:signature_invalid
+            - ap2:mandate:expired
+            - ap2:mandate:constraints_violated
+            - ap2:credentials:unavailable
+            - ap2:payment:declined
+            - api:bad_request
+            - api:not_found
+            - api:internal_error
+          example: "ap2:mandate:signature_invalid"
+        message:
+          type: string
+          description: Human-readable error description
+          example: "Cart mandate signature verification failed"
+        details:
+          type: object
+          description: Additional error context
+          additionalProperties: true
+
+  responses:
+    BadRequest:
+      description: Bad request (invalid input)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error_code: "api:bad_request"
+            message: "Missing required field: session_id"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error_code: "api:not_found"
+            message: "Transaction not found: txn_invalid"
+
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error_code: "api:internal_error"
+            message: "An unexpected error occurred"
