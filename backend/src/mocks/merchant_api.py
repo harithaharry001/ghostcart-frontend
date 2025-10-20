@@ -248,7 +248,7 @@ def _apply_demo_price_drop(product: Product, query: Optional[str]) -> int:
             drop_query in product.name.lower() or
             drop_query in product.description.lower()):
 
-            # Check if 45 seconds have passed since activation
+            # Check if 10 seconds have passed since activation (demo mode)
             elapsed = (datetime.utcnow() - drop_info["activated_at"]).total_seconds()
 
             if elapsed >= 10:
@@ -273,11 +273,12 @@ def search_products(
     category: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Search product catalog by query, price, and category.
+    Search product catalog by query and category.
 
     Args:
         query: Search terms (case-insensitive match on name/description)
-        max_price: Maximum price in dollars
+        max_price: Maximum price in dollars (informational - NOT used for filtering,
+                   agent handles budget logic in conversation)
         category: Filter by category
 
     Returns:
@@ -285,33 +286,35 @@ def search_products(
 
     AP2 Compliance: Merchant provides product data only, no payment info.
     Demo Mode: Applies dynamic price drops after 45 seconds.
+
+    Note: Products are NOT filtered by max_price. The agent receives all matching
+    products and can explain budget constraints intelligently (e.g., "This is over
+    your budget, would you like alternatives?").
     """
     results = PRODUCT_CATALOG
 
     # Filter by search query
     if query:
         query_lower = query.lower()
+        # Split query into keywords and check if ALL keywords appear in name or description
+        # This allows "dyson vacuum" to match "Dyson V11 Cordless Vacuum"
+        keywords = query_lower.split()
         results = [
             p for p in results
-            if query_lower in p.name.lower() or query_lower in p.description.lower()
+            if all(
+                keyword in p.name.lower() or keyword in p.description.lower()
+                for keyword in keywords
+            )
         ]
 
-    # Apply demo price drops BEFORE filtering by max_price
-    # This allows products to match after price drop
+    # Apply demo price drops
+    # This allows products to match after price drop in HNP monitoring
     results_with_price_drops = []
     for p in results:
         modified_price = _apply_demo_price_drop(p, query)
         results_with_price_drops.append((p, modified_price))
 
-    # Filter by max price (using modified prices)
-    if max_price is not None:
-        max_price_cents = int(max_price * 100)
-        results_with_price_drops = [
-            (p, price) for p, price in results_with_price_drops
-            if price <= max_price_cents
-        ]
-
-    # Filter by category
+    # Filter by category (if specified)
     if category:
         results_with_price_drops = [
             (p, price) for p, price in results_with_price_drops
@@ -319,6 +322,8 @@ def search_products(
         ]
 
     # Convert to dictionaries with modified prices
+    # NOTE: We do NOT filter by max_price - agent handles budget logic
+    # The max_price parameter is passed to the agent tool so it knows the user's budget
     return [
         {
             "product_id": p.product_id,

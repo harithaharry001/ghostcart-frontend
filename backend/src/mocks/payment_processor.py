@@ -55,26 +55,32 @@ def authorize_payment(
     - Special tokens (tok_decline*) trigger specific decline scenarios
     - Other tokens have ~90% approval rate based on deterministic hash
     """
+    from ..config import settings
+
     metadata = metadata or {}
     processed_at = datetime.utcnow()
 
-    # Check for special decline test tokens
-    if payment_token in DECLINE_TOKENS:
-        return {
-            "status": "declined",
-            "authorization_code": None,
-            "decline_reason": DECLINE_TOKENS[payment_token],
-            "processed_at": processed_at.isoformat(),
-            "amount_cents": amount_cents,
-            "currency": currency,
-            "metadata": metadata,
-        }
+    # Demo mode: Always approve for demonstration
+    if settings.demo_mode:
+        should_approve = True
+    else:
+        # Check for special decline test tokens
+        if payment_token in DECLINE_TOKENS:
+            return {
+                "status": "declined",
+                "authorization_code": None,
+                "decline_reason": DECLINE_TOKENS[payment_token],
+                "processed_at": processed_at.isoformat(),
+                "amount_cents": amount_cents,
+                "currency": currency,
+                "metadata": metadata,
+            }
 
-    # Deterministic approval/decline based on token + amount hash
-    # This gives ~90% approval rate
-    hash_input = f"{payment_token}:{amount_cents}:{currency}"
-    hash_value = int(hashlib.sha256(hash_input.encode()).hexdigest()[:8], 16)
-    should_approve = (hash_value % 10) != 0  # 90% approval (0-9, decline only on 0)
+        # Deterministic approval/decline based on token + amount hash
+        # This gives ~90% approval rate
+        hash_input = f"{payment_token}:{amount_cents}:{currency}"
+        hash_value = int(hashlib.sha256(hash_input.encode()).hexdigest()[:8], 16)
+        should_approve = (hash_value % 10) != 0  # 90% approval (0-9, decline only on 0)
 
     if should_approve:
         # Generate authorization code from hash

@@ -1,8 +1,6 @@
 /**
  * MonitoringStatusCard Component
- *
- * Displays real-time status of active HNP monitoring jobs.
- * Shows product query, constraints, last check time, and allows cancellation.
+ * Futuristic real-time monitoring display for HNP flow
  *
  * AP2 Transparency:
  * - Shows what's being monitored
@@ -11,7 +9,6 @@
  * - User can revoke authorization by cancelling
  */
 import { useState, useEffect } from 'react';
-import { useSession } from '../context/SessionContext';
 
 export default function MonitoringStatusCard({ job, onCancel, onViewChain }) {
   const [timeRemaining, setTimeRemaining] = useState('');
@@ -36,11 +33,11 @@ export default function MonitoringStatusCard({ job, onCancel, onViewChain }) {
       const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
 
       if (days > 0) {
-        setTimeRemaining(`${days}d ${hours}h remaining`);
+        setTimeRemaining(`${days}d ${hours}h`);
       } else if (hours > 0) {
-        setTimeRemaining(`${hours}h ${minutes}m remaining`);
+        setTimeRemaining(`${hours}h ${minutes}m`);
       } else {
-        setTimeRemaining(`${minutes}m remaining`);
+        setTimeRemaining(`${minutes}m`);
       }
     };
 
@@ -54,10 +51,13 @@ export default function MonitoringStatusCard({ job, onCancel, onViewChain }) {
       const now = new Date();
       const lastCheckTime = new Date(job.last_check_at);
       const diff = now - lastCheckTime;
+      const seconds = Math.floor(diff / 1000);
       const minutes = Math.floor(diff / (1000 * 60));
 
-      if (minutes < 1) {
-        setLastCheck('Just now');
+      if (seconds < 10) {
+        setLastCheck('just now');
+      } else if (seconds < 60) {
+        setLastCheck(`${seconds}s ago`);
       } else if (minutes < 60) {
         setLastCheck(`${minutes}m ago`);
       } else {
@@ -72,7 +72,7 @@ export default function MonitoringStatusCard({ job, onCancel, onViewChain }) {
     const interval = setInterval(() => {
       updateCountdown();
       updateLastCheck();
-    }, 60000); // Update every minute
+    }, 1000); // Update every second for smooth countdown
 
     return () => clearInterval(interval);
   }, [job.expires_at, job.last_check_at]);
@@ -90,106 +90,151 @@ export default function MonitoringStatusCard({ job, onCancel, onViewChain }) {
   const maxDelivery = job.constraints?.max_delivery_days || 'N/A';
 
   return (
-    <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-4 shadow-md">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
-          <h3 className="text-lg font-semibold text-blue-900">
-            Monitoring Active
-          </h3>
+    <div className="modern-card p-5 animate-slide-up">
+      {/* Header with Status Indicator */}
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="icon-container">
+            <svg className="w-5 h-5 text-warning animate-pulse-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-secondary">
+              Active Monitoring
+            </h3>
+            <p className="text-xs text-neutral-600 font-mono">
+              {job.job_id.slice(0, 8)}...
+            </p>
+          </div>
         </div>
         {job.active && (
           <button
             onClick={handleCancel}
-            className="text-sm text-blue-700 hover:text-blue-900 underline"
+            className="btn-ghost p-2"
           >
-            Cancel
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         )}
       </div>
 
       {/* Product Query */}
-      <div className="mb-3">
-        <p className="text-sm text-gray-600 mb-1">Watching for:</p>
-        <p className="text-base font-medium text-gray-900">
+      <div className="mb-4 p-3 bg-primary/5 rounded-xl border border-primary/20">
+        <p className="text-xs text-neutral-600 mb-2 uppercase tracking-wide font-medium">Watching for:</p>
+        <p className="text-sm font-medium text-secondary">
           {job.product_query}
         </p>
       </div>
 
-      {/* Constraints */}
-      <div className="grid grid-cols-2 gap-3 mb-3">
-        <div className="bg-white rounded p-2">
-          <p className="text-xs text-gray-600 mb-1">Max Price</p>
-          <p className="text-base font-semibold text-green-700">
+      {/* Constraints Grid */}
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="stat-card">
+          <div className="flex items-center gap-2 mb-2">
+            <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-xs text-neutral-600">Max Price</p>
+          </div>
+          <p className="text-2xl font-bold text-primary">
             ${maxPrice}
           </p>
         </div>
-        <div className="bg-white rounded p-2">
-          <p className="text-xs text-gray-600 mb-1">Max Delivery</p>
-          <p className="text-base font-semibold text-green-700">
-            {maxDelivery} days
+        <div className="stat-card">
+          <div className="flex items-center gap-2 mb-2">
+            <svg className="w-4 h-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-xs text-neutral-600">Max Delivery</p>
+          </div>
+          <p className="text-2xl font-bold text-success">
+            {maxDelivery}d
           </p>
         </div>
       </div>
 
       {/* Status Info */}
-      <div className="space-y-2 mb-3">
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-600">Check Interval:</span>
-          <span className="text-gray-900 font-medium">
+      <div className="modern-card p-3 mb-4 space-y-2">
+        <div className="flex justify-between items-center text-sm">
+          <span className="text-neutral-600">Check Interval:</span>
+          <span className="text-secondary font-mono text-xs">
             {job.schedule_interval_minutes < 1
               ? `${Math.round(job.schedule_interval_minutes * 60)}s`
               : `${job.schedule_interval_minutes}m`}
           </span>
         </div>
 
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-600">Last Check:</span>
-          <span className="text-gray-900 font-medium">{lastCheck}</span>
+        <div className="divider my-2"></div>
+
+        <div className="flex justify-between items-center text-sm">
+          <span className="text-neutral-600">Last Check:</span>
+          <span className="text-secondary font-mono text-xs">{lastCheck}</span>
         </div>
 
         {job.next_run_time && (
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-600">Next Check:</span>
-            <span className="text-gray-900 font-medium">
-              {new Date(job.next_run_time).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit'
-              })}
-            </span>
-          </div>
+          <>
+            <div className="divider my-2"></div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-neutral-600">Next Check:</span>
+              <span className="text-primary font-mono text-xs">
+                {new Date(job.next_run_time).toLocaleTimeString([], {
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+              </span>
+            </div>
+          </>
         )}
 
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-600">Expires:</span>
-          <span className="text-gray-900 font-medium">{timeRemaining}</span>
+        <div className="divider my-2"></div>
+
+        <div className="flex justify-between items-center text-sm">
+          <span className="text-neutral-600">Expires in:</span>
+          <span className="text-warning font-mono text-xs">{timeRemaining}</span>
         </div>
       </div>
 
-      {/* Current Status Reason */}
-      <div className="bg-yellow-50 border border-yellow-200 rounded p-2 mb-3">
-        <p className="text-xs text-yellow-800">
-          <span className="font-semibold">Status:</span> Conditions not met - checking periodically
-        </p>
+      {/* Status indicator */}
+      <div className="badge badge-info mb-4 w-full justify-start p-3">
+        <div className="status-dot active mr-2"></div>
+        <div className="text-left">
+          <p className="text-xs font-semibold mb-0.5">
+            Monitoring Active
+          </p>
+          <p className="text-xs opacity-80">
+            Checking every 10 seconds for price drops. (for demo purpose)
+          </p>
+        </div>
       </div>
 
       {/* Actions */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 mb-4">
         <button
           onClick={() => onViewChain && onViewChain(job.intent_mandate_id)}
-          className="flex-1 px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+          className="flex-1 btn-outline text-sm py-2"
         >
-          View Intent Mandate
+          View Mandate
+        </button>
+        <button
+          onClick={handleCancel}
+          className="btn-ghost text-error text-sm py-2 px-4"
+        >
+          Cancel
         </button>
       </div>
 
       {/* Info Footer */}
-      <div className="mt-3 pt-3 border-t border-blue-200">
-        <p className="text-xs text-gray-600">
-          🤖 I'll purchase automatically when conditions are met.
-          You'll be notified immediately.
-        </p>
+      <div className="pt-4 border-t border-neutral-200">
+        <div className="flex items-start gap-2">
+          <svg className="w-4 h-4 text-accent flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-xs text-neutral-600">
+            <span className="text-secondary font-semibold">Autonomous:</span> Auto-purchase when conditions are met
+          </p>
+        </div>
       </div>
     </div>
   );

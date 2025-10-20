@@ -75,7 +75,7 @@ async def create_intent_mandate(
         "scenario": scenario,
         "product_query": product_query,
         "constraints": constraints,
-        "expiration": expiration.isoformat() if expiration else None,
+        "expiration": expiration,  # Keep as datetime for Pydantic validation
     }
 
     # Sign if required (HNP)
@@ -95,13 +95,18 @@ async def create_intent_mandate(
     # Validate with Pydantic
     intent_mandate = IntentMandate(**mandate_data)
 
+    # Prepare mandate data for JSON storage (convert datetime to ISO string)
+    mandate_data_for_db = mandate_data.copy()
+    if mandate_data_for_db.get("expiration"):
+        mandate_data_for_db["expiration"] = mandate_data_for_db["expiration"].isoformat()
+
     # Store in database
     db_mandate = MandateModel(
         id=mandate_id,
         mandate_type="intent",
         user_id=user_id,
         transaction_id=None,
-        mandate_data=json.dumps(mandate_data),
+        mandate_data=json.dumps(mandate_data_for_db),
         signer_identity=signer_identity,
         signature=signature_obj.signature_value if signature_obj else None,
         signature_metadata=json.dumps({
@@ -168,12 +173,14 @@ async def create_cart_mandate(
     mandate_data = {
         "mandate_id": mandate_id,
         "mandate_type": "cart",
-        "user_id": user_id,
         "items": items,
         "total": total,
         "merchant_info": merchant_info,
         "delivery_estimate_days": delivery_estimate_days,
-        "references": intent_reference,
+        "references": {
+            "intent_mandate_id": intent_reference,
+            "transaction_id": None
+        },
     }
 
     # Sign Cart

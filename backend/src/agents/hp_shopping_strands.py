@@ -18,114 +18,50 @@ logger = logging.getLogger(__name__)
 # Config will be imported inside factory function to avoid circular imports
 
 
-HP_SHOPPING_SYSTEM_PROMPT = """You are the GhostCart Shopping Assistant for immediate purchases.
+HP_SHOPPING_SYSTEM_PROMPT = """You are GhostCart's shopping specialist - help users discover products and complete immediate purchases through natural conversation.
 
-**Your Role:**
-Help users find and purchase products right now through natural conversation using your available tools.
+## Your Role
 
-**Complete Purchase Workflow:**
+You're an intelligent shopping assistant with tools to search products, create carts, request authorization, and process payments. Guide users from browsing to checkout naturally, not as a scripted bot.
 
-1. **Understand Intent**
-   - Ask clarifying questions about what they want to buy
-   - Understand price range, preferences, urgency
+## Tools Available
 
-2. **Search Products**
-   - Use `search_products` tool with user's query and max_price
-   - Present options with key details (price, stock, delivery)
-   - Help user decide based on their needs
-   - **After showing products, wait for user confirmation**
+- `search_products(query, max_price)` - Find products by keyword
+- `create_shopping_cart(product_id, quantity)` - Create cart with selected product
+- `request_user_cart_signature(cart_mandate_id, cart_summary)` - Request purchase authorization
+- `get_signed_cart_mandate(cart_mandate_id)` - Retrieve signed cart after approval
+- `invoke_payment_processing(signed_cart_mandate)` - Process payment
 
-3. **Product Selection (Multi-Turn Conversation)**
-   - When user responds with affirmative like "Yes", "I'll take it", "Add to cart", "The first one", etc.
-   - **CRITICAL**: Use conversation context - you just showed them products in your previous response
-   - The search_products tool returned JSON with product_id fields
-   - If user says generic "Yes" or "I'll take it" → assume they want the FIRST product from your last search
-   - If user specifies "the second one" or "option 2" → use that numbered product
-   - If user mentions product name → match it from previous results
-   - **IMMEDIATELY proceed to Build Cart - don't ask for confirmation again!**
+## Critical System Behaviors
 
-4. **Build Cart**
-   - Once user selects a product, use `create_shopping_cart` tool with the product_id
-   - Provide cart summary: items, total, delivery estimate
-   - Explain next step: biometric authorization
+**Product search returns ALL matches**: The `search_products` function returns all products matching the query, NOT filtered by `max_price`. You must handle budget constraints in conversation - explain when products exceed budget and offer alternatives or ask if user wants to proceed anyway.
 
-5. **Request Signature** (ASYNC - User interaction required)
-   - **CRITICAL:** Use `request_user_cart_signature` tool - DO NOT ask user to type signature!
-   - This tool triggers a biometric modal in the frontend UI
-   - Tell user: "Please approve this purchase with your biometric authorization. A confirmation modal will appear."
-   - IMPORTANT: The signature is NOT applied immediately - user must interact with frontend modal
-   - The tool returns signature_required=True, which tells frontend to show the modal
-   - After you call this tool, inform user that modal is ready and wait for them to complete it
-   - **NEVER say things like "type your full name" or "provide signature below" - signatures are BIOMETRIC!**
+**Authorization requires waiting**: After calling `request_user_cart_signature()`, you must:
+1. Tell the user the cart mandate ID explicitly (e.g., "Please sign cart mandate cart_hp_abc123")
+2. Wait for the user's explicit confirmation before proceeding
+3. The user will respond with: "I have signed the cart mandate (ID: cart_hp_...). Please proceed with payment processing."
+4. Do not continue to payment until you receive this specific confirmation message
 
-   **DO NOT proceed to payment immediately after calling this tool!**
-   The conversation pauses here. User will return to chat after signing in the frontend.
+Example: "I've created cart cart_hp_abc123 for your purchase. Please approve the cart mandate (ID: cart_hp_abc123) in the signature modal that just appeared."
 
-6. **Process Payment** (Only when user returns with signed cart)
-   - After user completes signature in frontend modal, use `invoke_payment_processing` tool
-   - This invokes the Payment Agent to process payment
-   - Handle result:
-     * **Authorized**: Celebrate! Provide transaction details
-     * **Declined**: Explain reason sympathetically, offer to try different payment method
+**Context-aware cart creation**: You have full conversation history. When a user confirms interest in a product after you've presented options (through affirmative responses, selections, or preference statements like "I prefer Apple"), proceed directly to creating the cart with that product. Don't search again - use the product_id from your previous message.
 
-**Available Tools:**
-- `search_products(query, max_price)` - Search product catalog (returns JSON with product_id, name, price_cents, etc.)
-- `create_shopping_cart(user_id, product_id, quantity)` - Create cart mandate
-- `request_user_cart_signature(user_id, cart_mandate_id, cart_summary)` - Request user authorization
-- `get_signed_cart_mandate(cart_mandate_id)` - Retrieve signed cart from database after user signs
-- `invoke_payment_processing(user_id, signed_cart_mandate)` - Process payment via Payment Agent
+**Error handling**: If a tool call fails, explain the issue clearly and suggest next steps. Don't silently fail or retry without user input.
 
-**Important Rules:**
-1. Always search before suggesting products (don't invent items!)
-2. ALWAYS use the search_products tool when user asks for products - don't describe products without searching!
-3. Only recommend in-stock items from search results
-4. Use tools in order: search → cart → signature → payment
-5. Be transparent about what user is authorizing
-6. If payment declines, empathize and offer alternatives
-7. Celebrate successful purchases!
-8. **When user says "Yes" after seeing products, CREATE THE CART immediately with the first product shown**
-9. **You have conversation history - remember which products you showed in your last message**
-10. **NEVER ask user to type their signature! ALWAYS use request_user_cart_signature tool to trigger biometric modal**
-11. **DO NOT say "type your full name" or "provide signature below" - signatures are biometric via modal!**
+## Example Flow
 
-**MULTI-TURN FLOW EXAMPLE:**
+User: "Show me coffee makers under $70"
+You: `search_products("coffee maker", 70)` → Present results with prices
 
-User: "I need a coffee maker under $70"
-You: [Call search_products("coffee maker", 70)]
-You: "I found these coffee makers under $70:
-      1. Philips HD7462 - $69.00 (ships in 2 days)
-      2. Keurig K-Mini - $59.99 (ships in 3 days)
-      Which one would you like?"
+User: "I'll take the first one"
+You: `create_shopping_cart("prod_coffee_001", 1)` → `request_user_cart_signature("cart_hp_abc", "Philips Coffee Maker - $69")` → "Great! Please approve in the modal."
 
-User: "Yes!"
-You: [Recognize "Yes" means first product]
-You: [Call create_shopping_cart("user_demo_001", "prod_philips_hd7462", 1)]
-You: "Great choice! Adding the Philips HD7462 Coffee Maker ($69) to your cart..."
-You: [Call request_user_cart_signature("user_demo_001", "cart_abc123", "Philips HD7462 Coffee Maker - $73.83")]
-You: "Please approve this purchase with your biometric authorization. A confirmation modal will appear on your screen."
-[WAIT - User must complete biometric signature in frontend modal before proceeding]
+User: "I have signed the cart mandate (ID: cart_hp_abc). Please proceed with payment processing."
+You: `get_signed_cart_mandate("cart_hp_abc")` → `invoke_payment_processing(signed_cart)` → "Payment confirmed! Your coffee maker ships in 2 days."
 
-User: "I have signed the cart mandate (ID: cart_abc123). Please proceed with payment processing."
-You: [Recognize user has signed - extract cart_mandate_id from message]
-You: [Call get_signed_cart_mandate("cart_abc123") to retrieve signed cart from database]
-You: [Call invoke_payment_processing("user_demo_001", signed_cart_mandate_json)]
-You: "Payment authorized! Your order is confirmed..."
+## Conversation Style
 
-**IMPORTANT: Retrieving Signed Cart Mandate:**
-When user returns after signing, they will provide the cart mandate ID in their message:
-- Look for the cart ID in messages like "I have signed the cart mandate (ID: cart_abc123)"
-- Extract the mandate_id (format: "cart_hp_...")
-- Use get_signed_cart_mandate tool to retrieve the signed cart from database
-- Pass the retrieved signed cart JSON to invoke_payment_processing tool
-- The signed cart will contain: mandate_id, user_id, items, total, signature, etc.
-
-**AP2 Protocol Context (HP Flow):**
-- You create context-only Intent (no signature needed for immediate purchase)
-- User signs Cart (biometric authorization via signature tool)
-- Payment Agent validates and processes (you invoke via tool)
-- Transaction creates audit trail: Intent → Cart → Payment → Transaction
-
-Keep conversation natural and friendly. Guide users through the complete purchase flow using your tools!
+Be helpful, concise, and adapt your tone to the user. Trust your judgment to create a smooth shopping experience.
 """
 
 
@@ -139,6 +75,8 @@ def create_hp_shopping_agent(
     get_signed_mandate_fn=None,
     save_cart_fn=None,
     sse_emit_fn=None,
+   db_session=None,  # Database session for transaction creation
+    user_id: str = "user_demo_001",  # Default user for demo
     model_id: Optional[str] = None,
     region_name: Optional[str] = None
 ) -> Agent:
@@ -160,6 +98,7 @@ def create_hp_shopping_agent(
         get_signed_mandate_fn: Optional function to retrieve signed cart from database
         save_cart_fn: Optional function to save unsigned cart to database
         sse_emit_fn: Optional SSE event emitter for custom events
+        user_id: User identifier for this session (defaults to user_demo_001)
         model_id: Bedrock model ID (defaults to settings.aws_bedrock_model_id)
         region_name: AWS region (defaults to settings.aws_region)
 
@@ -195,19 +134,18 @@ def create_hp_shopping_agent(
         return json.dumps({"products": results[:5]})
 
     @tool
-    async def create_shopping_cart(user_id: str, product_id: str, quantity: int = 1) -> str:
+    async def create_shopping_cart(product_id: str, quantity: int = 1) -> str:
         """
         Create shopping cart with selected product.
 
         Args:
-            user_id: User identifier
             product_id: ID of product to add to cart
             quantity: Number of items (default 1)
 
         Returns:
             JSON string with cart mandate and SSE metadata
         """
-        # Create Intent (context-only for HP)
+        # Create Intent (context-only for HP) - user_id from closure
         intent = create_intent_fn(user_id, f"Purchase product {product_id}")
 
         # Get product details
@@ -240,7 +178,7 @@ def create_hp_shopping_agent(
         return json.dumps(cart)
 
     @tool
-    def request_user_cart_signature(user_id: str, cart_mandate_id: str, cart_summary: str) -> str:
+    def request_user_cart_signature(cart_mandate_id: str, cart_summary: str) -> str:
         """
         Request user to sign the cart mandate for purchase authorization.
 
@@ -256,13 +194,13 @@ def create_hp_shopping_agent(
         6. User can then proceed with payment after signature is applied
 
         Args:
-            user_id: User identifier
             cart_mandate_id: ID of cart mandate to sign
             cart_summary: Human-readable summary (e.g., "Philips Coffee Maker - $73.83")
 
         Returns:
             JSON with signature_required flag to trigger frontend modal
         """
+        # user_id from closure
         result = request_signature_fn(user_id, cart_mandate_id, "cart", cart_summary)
 
         # Emit SSE event to trigger frontend signature modal
@@ -306,7 +244,7 @@ def create_hp_shopping_agent(
             })
 
     @tool
-    async def invoke_payment_processing(user_id: str, signed_cart_mandate: str) -> str:
+    async def invoke_payment_processing(signed_cart_mandate: str) -> str:
         """
         Invoke Payment Agent to process the payment after cart is signed.
 
@@ -315,9 +253,9 @@ def create_hp_shopping_agent(
         2. Retrieve tokenized payment credentials
         3. Process payment authorization
         4. Create Payment mandate
+        5. Create transaction record
 
         Args:
-            user_id: User identifier
             signed_cart_mandate: JSON string of signed cart mandate
 
         Returns:
@@ -326,28 +264,93 @@ def create_hp_shopping_agent(
         try:
             cart_dict = json.loads(signed_cart_mandate) if isinstance(signed_cart_mandate, str) else signed_cart_mandate
 
-            # Invoke Payment Agent with HP flow
-            # Use invoke_async for async context
-            result = await payment_agent.invoke_async(f"Process human-present payment for cart {cart_dict.get('mandate_id')}. Cart mandate: {json.dumps(cart_dict)}")
+            # Use the payment_agent passed from closure (it's already a Strands agent)
+            # Create PaymentAgent wrapper with proper credentials/processor
+            from ..agents.payment_agent.agent import PaymentAgent
+            from ..mocks.credentials_provider import get_payment_methods
+            from ..mocks.payment_processor import authorize_payment
 
-            # Extract message from result
-            response_text = ""
-            if hasattr(result, 'message'):
-                msg = result.message
-                if isinstance(msg, dict) and 'content' in msg:
-                    content = msg['content']
-                    if isinstance(content, list) and len(content) > 0:
-                        response_text = content[0].get('text', str(msg))
-                    else:
-                        response_text = str(content)
-                else:
-                    response_text = str(msg)
+            payment_agent_wrapper = PaymentAgent(
+                credentials_provider=lambda uid: {"success": True, "payment_methods": get_payment_methods(uid), "error": None},
+                payment_processor=authorize_payment
+            )
+
+            payment_result = payment_agent_wrapper.process_hp_purchase(cart_mandate=cart_dict)
+
+            if not payment_result.get("success"):
+                errors = payment_result.get("errors", ["Payment failed"])
+                logger.error(f"❌ HP Payment failed: {errors}")
+                return json.dumps({
+                    "success": False,
+                    "errors": errors
+                })
+
+            # Extract payment details
+            transaction_result = payment_result.get("transaction_result", {})
+            payment_mandate = payment_result.get("payment_mandate", {})
+            cart_total = cart_dict.get("total", {})
+            amount_cents = cart_total.get("grand_total_cents", 0)
+
+            auth_code = transaction_result.get("authorization_code")
+            status = "authorized" if transaction_result.get("status") == "authorized" else "declined"
+            decline_reason = transaction_result.get("decline_reason")
+
+            logger.info(f"✅ HP Payment processed! Status: {status}, Auth Code: {auth_code}, Amount: ${amount_cents/100:.2f}")
+
+            # Create transaction record if we have db_session
+            transaction_id = None
+            if db_session:
+                from ..services.transaction_service import create_transaction
+                from ..db.models import MandateModel
+
+                # Save payment mandate to database first
+                if payment_mandate:
+                    payment_db = MandateModel(
+                        id=payment_mandate.get("mandate_id"),
+                        mandate_type="payment",
+                        user_id=user_id,
+                        transaction_id=None,  # Will be updated after transaction creation
+                        mandate_data=json.dumps(payment_mandate),
+                        signer_identity=payment_mandate.get("signature", {}).get("signer_identity", "ap2_payment_agent"),
+                        signature=json.dumps(payment_mandate.get("signature", {})),
+                        signature_metadata=json.dumps({}),
+                        validation_status="valid"
+                    )
+                    db_session.add(payment_db)
+                    await db_session.commit()
+                    logger.info(f"💾 Payment mandate saved: {payment_mandate.get('mandate_id')}")
+
+                # Get intent_id from cart references if available
+                cart_references = cart_dict.get("references", {})
+                intent_id = cart_references.get("intent_mandate_id") if cart_references else None
+
+                transaction = await create_transaction(
+                    db=db_session,
+                    user_id=user_id,
+                    cart_mandate_id=cart_dict.get("mandate_id"),
+                    payment_mandate_id=payment_mandate.get("mandate_id", f"payment_hp_{cart_dict.get('mandate_id', '')[-12:]}"),
+                    intent_mandate_id=intent_id,
+                    status=status,
+                    authorization_code=auth_code,
+                    decline_reason=decline_reason,
+                    amount_cents=amount_cents,
+                    processor_response=transaction_result
+                )
+                transaction_id = transaction.transaction_id
+                logger.info(f"💾 HP Transaction created: {transaction_id}")
+            else:
+                logger.warning("No db_session provided - transaction record not created")
 
             return json.dumps({
                 "success": True,
-                "message": response_text,
+                "transaction_id": transaction_id,
+                "authorization_code": auth_code or "N/A",
+                "amount_cents": amount_cents,
+                "status": status,
+                "message": f"Payment authorized! Transaction ID: {transaction_id}",
                 "flow": "human_present"
             })
+
         except Exception as e:
             logger.error(f"Payment processing failed: {e}", exc_info=True)
             return json.dumps({

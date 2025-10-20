@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # AWS Bedrock Configuration
     aws_region: str = "us-east-1"  # Configurable via AWS_REGION environment variable
-    aws_bedrock_model_id: str = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    aws_bedrock_model_id: str = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
     # Demo Configuration
     demo_mode: bool = True

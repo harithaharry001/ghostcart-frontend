@@ -118,13 +118,16 @@ def verify_signature(
         ).digest()
 
         expected_signature_value = expected_signature_bytes.hex()
+        verification_result = hmac.compare_digest(expected_signature_value, signature_value)
 
         # Constant-time comparison (prevents timing attacks)
-        return hmac.compare_digest(expected_signature_value, signature_value)
+        return verification_result
 
     except Exception as e:
         # Log error but don't raise - verification failure should return False
         print(f"Signature verification error: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 

@@ -49,15 +49,27 @@ class MonitoringScheduler:
 
         Configuration:
         - AsyncIOScheduler for async job execution
-        - SQLAlchemyJobStore backed by SQLite database
+        - SQLAlchemyJobStore backed by SEPARATE SQLite database (prevents locking conflicts)
         - AsyncIOExecutor for concurrent job execution
         - Coalesce: True (skip missed runs on restart)
         - Max instances: 3 per job (prevent overlap)
+        - WAL mode enabled for better concurrency
         """
+        # Use separate database for APScheduler to prevent locking conflicts
+        scheduler_db_path = settings.database_path.replace('.db', '_scheduler.db')
+        
         jobstores = {
             'default': SQLAlchemyJobStore(
-                url=f'sqlite:///{settings.database_path}',
-                tablename='apscheduler_jobs'
+                url=f'sqlite:///{scheduler_db_path}',
+                tablename='apscheduler_jobs',
+                engine_options={
+                    'connect_args': {
+                        'timeout': 30,  # Increase timeout to 30 seconds
+                        'check_same_thread': False
+                    },
+                    'pool_pre_ping': True,
+                    'pool_recycle': 3600
+                }
             )
         }
 
@@ -231,15 +243,16 @@ def get_monitoring_interval_minutes() -> int:
     Get monitoring interval based on demo mode setting.
 
     Returns:
-        30 seconds (0.5 minutes) if demo_mode=True, otherwise 5 minutes
+        10 seconds (0.167 minutes) if demo_mode=True, otherwise 5 minutes
 
     AP2 Compliance Note:
     Demo mode accelerates monitoring for hackathon demonstration purposes.
     Production systems should use longer intervals (5+ minutes).
     """
     if settings.demo_mode:
-        # Demo mode: Check every 30 seconds for faster demo
-        return 0.5  # APScheduler accepts fractional minutes
+        # Demo mode: Check every 10 seconds for faster demo
+        # Matches price drop delay so purchase happens immediately after price drops
+        return 0.167  # 10 seconds = 0.167 minutes (APScheduler accepts fractional minutes)
     else:
         # Production mode: Check every 5 minutes
         return 5
@@ -249,13 +262,66 @@ def get_monitoring_interval_minutes() -> int:
 # Scheduler Lifecycle Functions (for FastAPI integration)
 # ============================================================================
 
+def _restore_price_drops():
+    """
+    Re-register price drops for active monitoring jobs after server restart.
+
+    Since _price_drops dictionary is in-memory, it's lost on restart.
+    This function reads active jobs from database and re-registers their price drops.
+    """
+    from datetime import datetime, timedelta
+    from ..mocks.merchant_api import register_price_drop
+    from ..mocks import merchant_api
+    import sqlite3
+    import json
+
+    try:
+        # Use direct SQLite connection (simpler for startup, avoids async issues)
+        conn = sqlite3.connect(settings.database_path)
+        cursor = conn.cursor()
+
+        # Get all active jobs
+        cursor.execute(
+            "SELECT job_id, product_query, constraints FROM monitoring_jobs WHERE active = 1"
+        )
+        active_jobs = cursor.fetchall()
+
+        for job_id, product_query, constraints_json in active_jobs:
+            # Parse constraints to get target price
+            constraints = json.loads(constraints_json)
+            target_price_cents = constraints.get("max_price_cents")
+
+            if target_price_cents:
+                # Register the price drop
+                register_price_drop(product_query, target_price_cents)
+
+                # Backdate activation time so price drop is already active
+                # (jobs may have been running for a while before restart)
+                query_lower = product_query.lower()
+                if query_lower in merchant_api._price_drops:
+                    merchant_api._price_drops[query_lower]['activated_at'] = datetime.utcnow() - timedelta(seconds=60)
+
+                logger.info(
+                    f"Restored price drop for job {job_id}: "
+                    f"{product_query} -> ${target_price_cents/100:.2f}"
+                )
+
+        conn.close()
+    except Exception as e:
+        logger.error(f"Failed to restore price drops: {e}", exc_info=True)
+
+
 def start_scheduler():
     """
     Start the scheduler during app startup.
 
     Should be called in FastAPI lifespan/startup event.
+    Also re-registers price drops for active monitoring jobs.
     """
     scheduler.start()
+
+    # Re-register price drops for active jobs (since _price_drops is in-memory)
+    _restore_price_drops()
 
 
 def shutdown_scheduler(wait: bool = True):

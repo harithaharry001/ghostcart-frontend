@@ -25,6 +25,7 @@ for AP2 mandate processing.
 from typing import Dict, Any, Callable, Optional
 import json
 import os
+import logging
 
 from strands import Agent
 from strands.models import BedrockModel
@@ -38,6 +39,8 @@ from .tools import (
     process_payment_authorization
 )
 from .crypto import get_secret, create_canonical_json
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -257,7 +260,21 @@ Respond with a JSON object containing:
 """
 
         result = self.agent(prompt)
-        response_text = result.message
+
+        # Extract actual text content from Strands SDK response
+        if hasattr(result, 'message'):
+            msg = result.message
+            if isinstance(msg, dict) and 'content' in msg:
+                # Strands format: {'role': 'assistant', 'content': [{'text': '...'}]}
+                content = msg['content']
+                if isinstance(content, list) and len(content) > 0 and 'text' in content[0]:
+                    response_text = content[0]['text']
+                else:
+                    response_text = str(msg)
+            else:
+                response_text = str(msg)
+        else:
+            response_text = str(result)
 
         # Parse JSON response from agent
         try:
@@ -266,6 +283,13 @@ Respond with a JSON object containing:
             json_end = response_text.rfind("}") + 1
             if json_start >= 0 and json_end > json_start:
                 json_str = response_text[json_start:json_end]
+
+                # Debug logging to see exact JSON string format
+                logger.info(f"HP Payment Agent response text (full): {response_text}")
+                logger.info(f"HP Extracted JSON string (first 300 chars): {json_str[:300]}")
+                logger.info(f"HP JSON string repr (first 100 chars): {repr(json_str[:100])}")
+                logger.info(f"HP JSON start position: {json_start}, end position: {json_end}")
+
                 return json.loads(json_str)
             else:
                 return {
@@ -328,7 +352,21 @@ Respond with a JSON object containing:
 """
 
         result = self.agent(prompt)
-        response_text = result.message
+
+        # Extract actual text content from Strands SDK response
+        if hasattr(result, 'message'):
+            msg = result.message
+            if isinstance(msg, dict) and 'content' in msg:
+                # Strands format: {'role': 'assistant', 'content': [{'text': '...'}]}
+                content = msg['content']
+                if isinstance(content, list) and len(content) > 0 and 'text' in content[0]:
+                    response_text = content[0]['text']
+                else:
+                    response_text = str(msg)
+            else:
+                response_text = str(msg)
+        else:
+            response_text = str(result)
 
         # Parse JSON response from agent
         try:
@@ -337,6 +375,13 @@ Respond with a JSON object containing:
             json_end = response_text.rfind("}") + 1
             if json_start >= 0 and json_end > json_start:
                 json_str = response_text[json_start:json_end]
+
+                # Debug logging to see exact JSON string format
+                logger.info(f"HNP Payment Agent response text (full): {response_text}")
+                logger.info(f"HNP Extracted JSON string (first 300 chars): {json_str[:300]}")
+                logger.info(f"HNP JSON string repr (first 100 chars): {repr(json_str[:100])}")
+                logger.info(f"HNP JSON start position: {json_start}, end position: {json_end}")
+
                 return json.loads(json_str)
             else:
                 return {

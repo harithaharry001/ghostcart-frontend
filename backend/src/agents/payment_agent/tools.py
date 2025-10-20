@@ -1,8 +1,6 @@
 """
 Payment Agent Tools for AP2 Mandate Validation and Processing
 
-⚠️ MINIMAL IMPORTS FROM PARENT PROJECT ⚠️
-
 These tools implement AP2 protocol validation and payment processing with
 zero domain knowledge. They operate purely on mandate structures and external
 payment infrastructure APIs.
@@ -104,17 +102,15 @@ def validate_hp_chain(cart_mandate_json: str) -> str:
         ):
             errors.append("Cart user signature verification failed")
 
-        # 2. Verify signer is the cart owner
-        if sig.signer_identity != cart.user_id:
-            errors.append(f"Signature signer {sig.signer_identity} != cart user {cart.user_id}")
+        # 2. Extract user_id from signature (HP: user signs cart)
 
         # 3. Pydantic already validated totals consistency via model validators
 
         result = {
             "valid": len(errors) == 0,
             "errors": errors,
-            "cart_total_cents": cart.total.total_cents,
-            "user_id": cart.user_id,
+            "cart_total_cents": cart.total.grand_total_cents,
+            "user_id": cart.signature.signer_identity,  # Get user from signature
         }
 
         return json.dumps(result)
@@ -207,24 +203,20 @@ def validate_hnp_chain(intent_mandate_json: str, cart_mandate_json: str) -> str:
             errors.append("Cart agent signature verification failed")
 
         # 4. Verify Cart references Intent
-        if cart.references != intent.mandate_id:
+        if cart.references.intent_mandate_id != intent.mandate_id:
             errors.append(
-                f"Cart references {cart.references} but Intent is {intent.mandate_id}"
+                f"Cart references {cart.references.intent_mandate_id} but Intent is {intent.mandate_id}"
             )
 
-        # 5. Verify user_id matches across chain
-        if intent.user_id != cart.user_id:
-            errors.append(
-                f"User ID mismatch: Intent {intent.user_id} != Cart {cart.user_id}"
-            )
+        # 5. Extract user_id from Intent (HNP: agent signs cart, user pre-authorized via Intent)
 
         # 6. Verify constraints not violated
         if intent.constraints:
             # Price constraint
             if intent.constraints.max_price_cents is not None:
-                if cart.total.total_cents > intent.constraints.max_price_cents:
+                if cart.total.grand_total_cents > intent.constraints.max_price_cents:
                     errors.append(
-                        f"Cart total {cart.total.total_cents}¢ exceeds "
+                        f"Cart total {cart.total.grand_total_cents}¢ exceeds "
                         f"Intent max price {intent.constraints.max_price_cents}¢"
                     )
 
@@ -239,8 +231,8 @@ def validate_hnp_chain(intent_mandate_json: str, cart_mandate_json: str) -> str:
         result = {
             "valid": len(errors) == 0,
             "errors": errors,
-            "cart_total_cents": cart.total.total_cents,
-            "user_id": cart.user_id,
+            "cart_total_cents": cart.total.grand_total_cents,
+            "user_id": intent.user_id,  # Get from Intent (user-signed), not Cart (agent-signed)
             "intent_id": intent.mandate_id,
             "cart_id": cart.mandate_id,
         }

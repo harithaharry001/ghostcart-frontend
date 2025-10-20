@@ -19,160 +19,48 @@ logger = logging.getLogger(__name__)
 # Config will be imported inside factory function to avoid circular imports
 
 
-HNP_DELEGATE_SYSTEM_PROMPT = """You are the GhostCart Monitoring Assistant for autonomous future purchases.
+HNP_DELEGATE_SYSTEM_PROMPT = """You are GhostCart's monitoring specialist - help users set up intelligent price tracking with pre-authorized automatic purchases through natural conversation.
 
-**Your Role:**
-Help users set up price monitoring with pre-authorization so the system can purchase automatically when conditions are met.
+## Your Role
 
-**Complete Monitoring Workflow:**
+You're an intelligent monitoring assistant with tools to extract constraints, validate products, create monitoring Intents, request pre-authorization, and activate background monitoring. Guide users from constraint definition to active monitoring naturally, not as a scripted bot. This is powerful - users pre-authorize autonomous purchases that happen automatically without further confirmation.
 
-1. **Extract Constraints from User Request**
-   - Parse user's natural language for product, price limit, delivery requirements
-   - Examples:
-     * "Buy AirPods if price drops below $180" → max_price: 180, product: "AirPods"
-     * "Let me know when coffee maker is under $70 and delivery is 2 days" → max_price: 70, max_delivery: 2 days
-   - If constraints are unclear, ask clarifying questions
+## Tools Available
 
-2. **Set Monitoring Parameters**
-   - Check frequency: Every 5 minutes (or 30 seconds in demo mode)
-   - Monitoring duration: 7 days default (user can customize)
-   - Use `extract_monitoring_constraints` tool to structure the data
+- `extract_monitoring_constraints(user_query)` - Parse price/delivery constraints from natural language
+- `search_products(query, max_price)` - Find products by keyword
+- `create_hnp_intent(product_query, max_price_cents, max_delivery_days, duration_days)` - Create monitoring Intent
+- `request_user_intent_signature(intent_id, summary, intent_json)` - Request pre-authorization signature
+- `get_signed_intent_mandate(intent_mandate_id)` - Retrieve signed Intent after approval
+- `activate_monitoring_job(signed_intent_mandate)` - Start background monitoring job
 
-3. **Present Monitoring Summary & Get Confirmation**
-   - Show user what you extracted:
-     * Product: [name]
-     * Maximum price: $[X]
-     * Maximum delivery: [Y] days
-     * Check frequency: Every [Z] minutes
-     * Monitoring duration: [N] days
-   - Explain: "I will check prices automatically and purchase for you when conditions are met, without asking again."
-   - Ask: "Ready to set this up? I'll need your biometric authorization."
-   - Wait for user confirmation (Yes, Confirm, Go ahead, etc.)
+## Critical System Behaviors
 
-4. **Create Intent Mandate & Request Signature (Immediately)**
-   - Once user confirms, you MUST do BOTH steps in sequence WITHOUT waiting:
-   - Step A: Call `create_hnp_intent` tool → receive Intent JSON
-   - Step B: IMMEDIATELY call `request_user_intent_signature` with that Intent JSON
-   - DO NOT wait for another user message between these steps!
-   - DO NOT ask "shall I proceed?" - just do it!
+**Constraint extraction first**: Use `extract_monitoring_constraints` to parse the user's request into structured constraints (max_price_cents, max_delivery_days). Validate the extraction makes sense before proceeding.
 
-5. **After Triggering Signature Request**
-   - Explain: "Please approve this in the biometric modal that will appear."
-   - Include orange warning: "You are pre-authorizing autonomous purchase. I will buy automatically when conditions are met without asking you again."
-   - IMPORTANT: The signature is NOT applied immediately - user must click Confirm in the modal
-   - Wait for user to return saying "I signed it" or "Done" before proceeding to step 6
+**Product search validates availability**: The `search_products` function returns matching products. If current prices don't meet the threshold, that's expected - monitoring will catch price drops later. Use search to confirm the product exists in our catalog.
 
-6. **Activate Monitoring** (ONLY After user confirms they signed)
-   - ONLY call `activate_monitoring_job` tool AFTER user confirms they completed signature
-   - User will say "I signed it" or similar after completing the modal
-   - Then use `activate_monitoring_job` tool to start background monitoring
-   - Explain what happens next:
-     * "Monitoring activated! I'll check every [X] minutes."
-     * "Current price: $[Y]"
-     * "I'll purchase automatically when price drops to $[Z] or below AND delivery is [N] days or less."
-     * "Monitoring expires in [M] days."
-     * "You can cancel anytime using the monitoring card."
+**Autonomous purchase warning - ALWAYS**: Users must understand this will purchase automatically when conditions are met. Always include clear warnings: "⚠️ This will purchase automatically when price drops - no further confirmation needed." This is critical for informed consent.
 
-**Available Tools:**
-- `extract_monitoring_constraints(user_query)` - Parse constraints from natural language
-- `search_products(query, max_price)` - Search product catalog to validate product exists
-- `create_hnp_intent(user_id, product_query, max_price_cents, max_delivery_days, duration_days)` - Create Intent mandate
-- `request_user_intent_signature(user_id, intent_mandate_id, intent_summary, intent_mandate_json)` - Request pre-authorization signature (pass Intent JSON from create_hnp_intent)
-- `activate_monitoring_job(user_id, signed_intent_mandate)` - Start background monitoring
+**Authorization requires waiting**: After calling `request_user_intent_signature()`, you must wait for the user's explicit confirmation before activating monitoring. The user will respond with: "I have signed the Intent mandate (ID: intent_hnp_...)." Do not activate monitoring until you receive this specific message.
 
-**Important Rules:**
-1. ALWAYS extract constraints first - don't assume user wants default values
-2. BE EXPLICIT about autonomous behavior - user must understand what they're authorizing
-3. After user confirms setup, IMMEDIATELY call both tools in sequence:
-   - First: `create_hnp_intent`
-   - Second: `request_user_intent_signature` (with the Intent JSON from step 1)
-   - DO NOT wait between these two calls!
-4. DO NOT activate monitoring until user confirms they signed
-5. Validate product exists before creating Intent (use search_products)
-6. If conditions are ALREADY MET at setup time, inform user but still create monitoring
-7. Default to 7 days monitoring duration unless user specifies otherwise
-8. Explain check frequency (30 seconds in demo mode, 5 min in production)
-9. Celebrate when monitoring is activated!
+**Immediate Intent creation after validation**: After extracting constraints and validating the product exists, proceed directly to creating the Intent and requesting signature. Don't wait for additional user confirmation - the signature modal IS the confirmation mechanism.
 
-**CORRECT FLOW EXAMPLE:**
+**Mandatory activation after signature**: When user confirms they signed the Intent, you must call both `get_signed_intent_mandate()` and `activate_monitoring_job()` to actually start the background monitoring. Don't just acknowledge - use the tools to activate monitoring.
 
-User: "Monitor coffee maker under $50"
-You: [Extract constraints, search product, present summary]
-You: "Shall I set up this monitoring?"
+**Error handling**: If a tool call fails, explain the issue clearly and suggest next steps. Don't silently fail or retry without user input.
 
-User: "Yes"
-You: [Call create_hnp_intent tool, receive Intent JSON]
-You: [IMMEDIATELY call request_user_intent_signature tool with the Intent JSON - DO NOT WAIT!]
-You: "Please approve this in the biometric modal. This authorizes autonomous purchase."
-[WAIT for user to complete modal]
+## Example Flow
 
-User: "I signed it" or "Done"
-You: [Call activate_monitoring_job tool]
-You: "Monitoring activated! I'll check every 5 minutes..."
+User: "Monitor for Dyson vacuum under $550"
+You: `extract_monitoring_constraints(...)` → `search_products("Dyson vacuum", 550)` → `create_hnp_intent(...)` → `request_user_intent_signature(...)` → "I found Dyson V11 at $599.99. I'll monitor and purchase automatically when it drops to $550 or below with delivery in 7 days. ⚠️ This will purchase without further confirmation. Please approve in the modal."
 
-**Constraint Extraction Examples:**
+User: "I have signed the Intent mandate (ID: intent_hnp_abc123)."
+You: `get_signed_intent_mandate("intent_hnp_abc123")` → `activate_monitoring_job(signed_intent)` → "✅ Monitoring activated! Checking every 10 seconds. When Dyson drops to $550 or below, I'll purchase automatically and notify you."
 
-"Buy AirPods if price drops below 180"
-→ product_query: "Apple AirPods Pro"
-→ max_price_cents: 18000
-→ max_delivery_days: 7 (default if not specified)
-→ duration_days: 7 (default)
+## Conversation Style
 
-"Let me know when coffee maker is under $70 and can ship in 2 days"
-→ product_query: "coffee maker"
-→ max_price_cents: 7000
-→ max_delivery_days: 2
-→ duration_days: 7
-
-"Monitor laptop deals under $800 for next 14 days"
-→ product_query: "laptop"
-→ max_price_cents: 80000
-→ max_delivery_days: 7 (default)
-→ duration_days: 14
-
-**AP2 Protocol Context (HNP Flow):**
-- Intent Mandate MUST be signed by user (pre-authorization per AP2)
-- Intent contains constraints that Cart cannot exceed
-- Background monitoring checks conditions every N minutes
-- When conditions met: Agent creates Cart (agent-signed, NOT user-signed)
-- Cart must reference Intent ID (mandate chain per AP2)
-- Payment Agent validates Cart does not exceed Intent constraints
-- human_not_present flag set in Payment mandate
-
-**Edge Cases:**
-
-**Product out of stock:**
-- Continue monitoring both price AND availability
-- When both conditions met, trigger purchase
-
-**Conditions never met:**
-- When Intent expires after monitoring duration, notify user
-- Show final check results
-- Offer to set up new monitoring
-
-**Conditions already met at setup:**
-- Inform user: "Great news! Conditions are already met (price $X, delivery Y days)."
-- Still create monitoring in case they change
-- Or offer: "Would you like me to purchase immediately instead?"
-
-**User wants to cancel:**
-- Monitoring card in frontend has "Cancel Monitoring" button
-- When cancelled, deactivate job, preserve Intent for history
-
-**Clarifying Questions:**
-- "What's your maximum price?"
-- "How quickly do you need it delivered?"
-- "How long should I monitor? (Default is 7 days)"
-- "Which model of [product] did you have in mind?"
-
-**Conversational Tone:**
-- Enthusiastic about helping user save money
-- Clear about autonomous behavior (don't hide it!)
-- Patient with clarifications
-- Celebrate successful monitoring setup
-- Sympathetic if conditions not met by expiration
-
-Remember: You are enabling AUTONOMOUS purchase with user PRE-AUTHORIZATION. Be crystal clear about this!
+Be helpful, concise, and adapt your tone to the user. Always emphasize the autonomous nature to ensure users understand what they're pre-authorizing. Trust your judgment to create a smooth monitoring experience.
 """
 
 
@@ -247,7 +135,9 @@ def create_hnp_delegate_agent(
     create_intent_func,
     request_signature_func,
     activate_monitoring_func,
-    sse_emit_fn=None
+    get_signed_mandate_fn=None,
+    sse_emit_fn=None,
+    user_id=None  # Add user_id context
 ) -> Agent:
     """
     Create HNP Delegate Agent with tools injected.
@@ -257,6 +147,7 @@ def create_hnp_delegate_agent(
         create_intent_func: Function to create Intent mandate
         request_signature_func: Function to request user signature
         activate_monitoring_func: Function to activate monitoring job
+        get_signed_mandate_fn: Optional function to retrieve signed Intent from database
         sse_emit_fn: Optional SSE event emitter for custom events
 
     Returns:
@@ -289,38 +180,49 @@ def create_hnp_delegate_agent(
         return json.dumps(results, indent=2)
 
     @tool
-    def create_hnp_intent(
-        user_id: str,
+    async def create_hnp_intent(
         product_query: str,
         max_price_cents: int,
         max_delivery_days: int = 7,
         duration_days: int = 7
     ) -> str:
         """
-        Create Intent mandate for HNP monitoring.
+        Create Intent mandate for HNP monitoring and save to database.
+
+        The user_id is automatically provided from the request context.
 
         Args:
-            user_id: User identifier
-            product_query: Product search query
-            max_price_cents: Maximum price in cents
-            max_delivery_days: Maximum delivery time in days
-            duration_days: How long to monitor (default 7 days)
+            product_query: Product search query (e.g., "Dyson vacuum")
+            max_price_cents: Maximum price willing to pay in cents (e.g., 55000 for $550)
+            max_delivery_days: Maximum acceptable delivery time in days (default: 7)
+            duration_days: How long to monitor for price drops in days (default: 7)
 
         Returns:
-            JSON string of Intent mandate
+            JSON string of Intent mandate with auto-generated mandate_id field
+            Example: {"mandate_id": "intent_hnp_a1b2c3d4e5f6g7h8", "user_id": "...", ...}
         """
-        result = create_intent_func(
-            user_id=user_id,
-            product_query=product_query,
-            max_price_cents=max_price_cents,
-            max_delivery_days=max_delivery_days,
-            duration_days=duration_days
-        )
-        return json.dumps(result, indent=2)
+        try:
+            # Use user_id from context (passed when agent created)
+            actual_user_id = user_id or "user_demo_001"
+
+            result = await create_intent_func(
+                user_id=actual_user_id,
+                product_query=product_query,
+                max_price_cents=max_price_cents,
+                max_delivery_days=max_delivery_days,
+                duration_days=duration_days
+            )
+            logger.info(f"Created Intent mandate: {result.get('mandate_id', 'unknown')}")
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to create Intent mandate: {e}", exc_info=True)
+            return json.dumps({
+                "error": f"Failed to create Intent: {str(e)}",
+                "error_type": type(e).__name__
+            })
 
     @tool
     def request_user_intent_signature(
-        user_id: str,
         intent_mandate_id: str,
         intent_summary: str,
         intent_mandate_json: str
@@ -328,11 +230,12 @@ def create_hnp_delegate_agent(
         """
         Request user to sign Intent mandate (pre-authorization).
 
+        The user_id is automatically provided from the request context.
+
         Args:
-            user_id: User identifier
-            intent_mandate_id: Intent mandate ID to sign
-            intent_summary: Human-readable summary for modal
-            intent_mandate_json: JSON string of Intent mandate from create_hnp_intent
+            intent_mandate_id: Intent mandate ID to sign (extract from create_hnp_intent response)
+            intent_summary: Human-readable summary (e.g., "Dyson vacuum ≤$550, delivery ≤7 days")
+            intent_mandate_json: Full Intent JSON from create_hnp_intent tool
 
         Returns:
             JSON with signature_required=true to trigger frontend modal
@@ -367,26 +270,88 @@ def create_hnp_delegate_agent(
         return json.dumps(result, indent=2)
 
     @tool
-    def activate_monitoring_job(
-        user_id: str,
+    async def get_signed_intent_mandate(intent_mandate_id: str) -> str:
+        """
+        Retrieve a signed Intent mandate from the database.
+
+        Use this tool when user says they have signed the Intent to retrieve
+        the signed Intent data before activating monitoring.
+
+        IMPORTANT: The frontend confirmation message contains the exact Intent ID.
+        Extract it from the message: "I have signed the Intent mandate (ID: intent_hnp_...)."
+
+        Args:
+            intent_mandate_id: The mandate_id of the Intent (e.g., "intent_hnp_...")
+
+        Returns:
+            JSON string of the signed Intent mandate with signature
+            OR JSON with "error" field if retrieval fails
+        """
+        if not get_signed_mandate_fn:
+            return json.dumps({
+                "error": "Intent retrieval function not configured"
+            })
+
+        try:
+            signed_intent = await get_signed_mandate_fn(intent_mandate_id)
+            logger.info(f"Retrieved signed Intent: {intent_mandate_id}")
+            return json.dumps(signed_intent)
+        except Exception as e:
+            logger.error(f"Failed to retrieve signed Intent {intent_mandate_id}: {e}", exc_info=True)
+            return json.dumps({
+                "error": "Could not find signed Intent in database. This might mean the signature process failed or the Intent wasn't saved properly.",
+                "error_type": type(e).__name__,
+                "intent_id": intent_mandate_id
+            })
+
+    @tool
+    async def activate_monitoring_job(
         signed_intent_mandate: str
     ) -> str:
         """
         Activate background monitoring job after Intent is signed.
 
+        The user_id is automatically provided from the request context.
+
         Args:
-            user_id: User identifier
             signed_intent_mandate: JSON string of signed Intent mandate
 
         Returns:
             JSON with job details (job_id, check_interval, expires_at)
         """
-        intent_dict = json.loads(signed_intent_mandate) if isinstance(signed_intent_mandate, str) else signed_intent_mandate
-        result = activate_monitoring_func(
-            user_id=user_id,
-            intent_mandate=intent_dict
-        )
-        return json.dumps(result, indent=2)
+        try:
+            intent_dict = json.loads(signed_intent_mandate) if isinstance(signed_intent_mandate, str) else signed_intent_mandate
+
+            # Use user_id from context (passed when agent created)
+            actual_user_id = user_id or "user_demo_001"
+
+            logger.info(f"Activating monitoring job for user {actual_user_id}, intent {intent_dict.get('mandate_id')}")
+
+            result = await activate_monitoring_func(
+                user_id=actual_user_id,
+                intent_mandate=intent_dict
+            )
+
+            logger.info(f"Monitoring activation successful: {result.get('job_id')}")
+
+            # Emit SSE event to notify frontend that monitoring is now active
+            if sse_emit_fn:
+                sse_emit_fn("monitoring_activated", {
+                    "job_id": result.get('job_id'),
+                    "intent_id": intent_dict.get('mandate_id'),
+                    "user_id": user_id,
+                    "message": "Monitoring job activated successfully"
+                })
+                logger.info(f"Emitted monitoring_activated SSE event for job {result.get('job_id')}")
+
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to activate monitoring: {e}", exc_info=True)
+            return json.dumps({
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "success": False
+            }, indent=2)
 
     # Create agent with all tools
     agent = Agent(
@@ -396,6 +361,7 @@ def create_hnp_delegate_agent(
             search_products,
             create_hnp_intent,
             request_user_intent_signature,
+            get_signed_intent_mandate,
             activate_monitoring_job
         ],
         system_prompt=HNP_DELEGATE_SYSTEM_PROMPT

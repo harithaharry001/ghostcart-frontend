@@ -63,6 +63,7 @@ async def create_transaction(
     """
     # Generate transaction ID
     transaction_id = f"txn_{uuid.uuid4().hex[:16]}"
+    created_at = datetime.utcnow()
 
     # Build transaction data
     transaction_data = {
@@ -76,6 +77,7 @@ async def create_transaction(
         "decline_reason": decline_reason,
         "amount_cents": amount_cents,
         "currency": "USD",
+        "created_at": created_at
     }
 
     # Validate with Pydantic
@@ -83,7 +85,7 @@ async def create_transaction(
 
     # Store in database
     db_transaction = TransactionModel(
-        id=transaction_id,
+        transaction_id=transaction_id,
         intent_mandate_id=intent_mandate_id,
         cart_mandate_id=cart_mandate_id,
         payment_mandate_id=payment_mandate_id,
@@ -92,7 +94,7 @@ async def create_transaction(
         authorization_code=authorization_code,
         decline_reason=decline_reason,
         amount_cents=amount_cents,
-        processor_response=json.dumps(processor_response) if processor_response else None,
+        currency="USD"
     )
 
     db.add(db_transaction)
@@ -166,7 +168,7 @@ async def get_transaction_by_id(
         Transaction or None if not found
     """
     result = await db.execute(
-        select(TransactionModel).where(TransactionModel.id == transaction_id)
+        select(TransactionModel).where(TransactionModel.transaction_id == transaction_id)
     )
     db_transaction = result.scalar_one_or_none()
 
@@ -175,7 +177,7 @@ async def get_transaction_by_id(
 
     # Convert to Pydantic model
     transaction = Transaction(
-        transaction_id=db_transaction.id,
+        transaction_id=db_transaction.transaction_id,
         intent_mandate_id=db_transaction.intent_mandate_id,
         cart_mandate_id=db_transaction.cart_mandate_id,
         payment_mandate_id=db_transaction.payment_mandate_id,
@@ -185,6 +187,7 @@ async def get_transaction_by_id(
         decline_reason=db_transaction.decline_reason,
         amount_cents=db_transaction.amount_cents,
         currency=db_transaction.currency or "USD",
+        created_at=db_transaction.created_at
     )
 
     return transaction
@@ -211,7 +214,7 @@ async def get_transaction_chain(
     """
     # Get transaction
     result = await db.execute(
-        select(TransactionModel).where(TransactionModel.id == transaction_id)
+        select(TransactionModel).where(TransactionModel.transaction_id == transaction_id)
     )
     db_transaction = result.scalar_one_or_none()
 
@@ -255,7 +258,7 @@ async def get_transaction_chain(
     # Build chain
     chain = {
         "transaction": {
-            "transaction_id": db_transaction.id,
+            "transaction_id": db_transaction.transaction_id,
             "user_id": db_transaction.user_id,
             "status": db_transaction.status,
             "authorization_code": db_transaction.authorization_code,
@@ -304,7 +307,7 @@ async def get_user_transactions(
 
     transactions = [
         Transaction(
-            transaction_id=t.id,
+            transaction_id=t.transaction_id,
             intent_mandate_id=t.intent_mandate_id,
             cart_mandate_id=t.cart_mandate_id,
             payment_mandate_id=t.payment_mandate_id,
@@ -314,6 +317,7 @@ async def get_user_transactions(
             decline_reason=t.decline_reason,
             amount_cents=t.amount_cents,
             currency=t.currency or "USD",
+            created_at=t.created_at
         )
         for t in db_transactions
     ]

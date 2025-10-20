@@ -58,6 +58,7 @@ class ConstraintsObject(BaseModel):
     """User-defined constraints for autonomous purchases."""
     max_price_cents: Optional[int] = Field(None, ge=0)
     max_delivery_days: Optional[int] = Field(None, ge=0)
+    currency: Literal["USD"] = "USD"
 
     model_config = {
         "strict": True,
@@ -83,9 +84,21 @@ class IntentMandate(BaseModel):
     signature: Optional[SignatureObject] = None
 
     model_config = {
-        "strict": True,
+        "strict": False,  # Allow datetime string conversion
         "extra": "forbid"
     }
+
+    @field_validator('expiration', mode='before')
+    @classmethod
+    def parse_expiration(cls, v):
+        """Convert ISO datetime string to datetime object."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            # Parse ISO format datetime string
+            from dateutil import parser
+            return parser.isoparse(v)
+        return v
 
     @model_validator(mode='after')
     def validate_hnp_requirements(self):
@@ -108,7 +121,7 @@ class LineItem(BaseModel):
     product_name: str
     quantity: int = Field(ge=1)
     unit_price_cents: int = Field(ge=0)
-    subtotal_cents: int = Field(ge=0)
+    line_total_cents: int = Field(ge=0)
 
     model_config = {
         "strict": True,
@@ -116,12 +129,12 @@ class LineItem(BaseModel):
     }
 
     @model_validator(mode='after')
-    def validate_subtotal(self):
-        """Verify subtotal = quantity * unit_price."""
+    def validate_line_total(self):
+        """Verify line_total = quantity * unit_price."""
         expected = self.quantity * self.unit_price_cents
-        if self.subtotal_cents != expected:
+        if self.line_total_cents != expected:
             raise ValueError(
-                f"Subtotal mismatch: {self.subtotal_cents} != {self.quantity} * {self.unit_price_cents}"
+                f"Line total mismatch: {self.line_total_cents} != {self.quantity} * {self.unit_price_cents}"
             )
         return self
 
@@ -131,7 +144,8 @@ class TotalObject(BaseModel):
     subtotal_cents: int = Field(ge=0)
     tax_cents: int = Field(ge=0)
     shipping_cents: int = Field(ge=0)
-    total_cents: int = Field(ge=0)
+    grand_total_cents: int = Field(ge=0)
+    currency: Literal["USD"] = "USD"
 
     model_config = {
         "strict": True,
@@ -139,12 +153,12 @@ class TotalObject(BaseModel):
     }
 
     @model_validator(mode='after')
-    def validate_total(self):
-        """Verify total = subtotal + tax + shipping."""
+    def validate_grand_total(self):
+        """Verify grand_total = subtotal + tax + shipping."""
         expected = self.subtotal_cents + self.tax_cents + self.shipping_cents
-        if self.total_cents != expected:
+        if self.grand_total_cents != expected:
             raise ValueError(
-                f"Total mismatch: {self.total_cents} != {self.subtotal_cents} + {self.tax_cents} + {self.shipping_cents}"
+                f"Grand total mismatch: {self.grand_total_cents} != {self.subtotal_cents} + {self.tax_cents} + {self.shipping_cents}"
             )
         return self
 
@@ -153,6 +167,18 @@ class MerchantInfo(BaseModel):
     """Merchant identification."""
     merchant_id: str
     merchant_name: str
+    merchant_url: str
+
+    model_config = {
+        "strict": True,
+        "extra": "forbid"
+    }
+
+
+class ReferencesObject(BaseModel):
+    """References to other mandates in the chain."""
+    intent_mandate_id: Optional[str] = None
+    transaction_id: Optional[str] = None
 
     model_config = {
         "strict": True,
@@ -170,23 +196,22 @@ class CartMandate(BaseModel):
     """
     mandate_id: str = Field(pattern="^cart_(hp|hnp)_")
     mandate_type: Literal["cart"] = "cart"
-    user_id: str
     items: List[LineItem]
     total: TotalObject
     merchant_info: MerchantInfo
     delivery_estimate_days: int = Field(ge=0)
-    references: Optional[str] = Field(None, pattern="^intent_(hp|hnp)_")  # Intent ID
+    references: ReferencesObject
     signature: SignatureObject
 
     model_config = {
-        "strict": True,
+        "strict": False,  # Allow some flexibility for demo
         "extra": "forbid"
     }
 
     @model_validator(mode='after')
     def validate_totals_match_items(self):
         """Verify cart total.subtotal matches sum of line items."""
-        items_total = sum(item.subtotal_cents for item in self.items)
+        items_total = sum(item.line_total_cents for item in self.items)
         if self.total.subtotal_cents != items_total:
             raise ValueError(
                 f"Cart subtotal {self.total.subtotal_cents} != sum of items {items_total}"

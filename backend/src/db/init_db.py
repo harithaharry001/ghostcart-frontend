@@ -31,8 +31,15 @@ def create_tables(conn: sqlite3.Connection) -> None:
     - monitoring_jobs: Stores HNP monitoring job metadata
     - transactions: Stores transaction results with mandate chain links
     - sessions: Stores user session data for conversation continuity
+    
+    Also enables WAL mode for better concurrency.
     """
     cursor = conn.cursor()
+    
+    # Enable WAL mode for better concurrency (prevents most locking issues)
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=30000")  # 30 second timeout
+    cursor.execute("PRAGMA synchronous=NORMAL")  # Balance between safety and performance
 
     # Mandates table - stores all three mandate types
     cursor.execute("""
@@ -151,12 +158,18 @@ def initialize_database():
 # SQLAlchemy Async Session Setup for FastAPI
 # ============================================================================
 
-# Create async engine
+# Create async engine with optimized settings for concurrency
 DATABASE_URL = f"sqlite+aiosqlite:///{settings.database_path}"
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
-    future=True
+    future=True,
+    connect_args={
+        "timeout": 30,  # 30 second timeout for lock acquisition
+        "check_same_thread": False
+    },
+    pool_pre_ping=True,  # Verify connections before using
+    pool_recycle=3600  # Recycle connections after 1 hour
 )
 
 # Create async session factory

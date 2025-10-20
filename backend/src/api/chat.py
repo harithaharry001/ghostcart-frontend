@@ -61,71 +61,130 @@ class ChatResponse(BaseModel):
 # Helper Functions
 # ============================================================================
 
-def create_hnp_intent_wrapper(
+async def create_hnp_intent_wrapper(
     user_id: str,
     product_query: str,
     max_price_cents: int,
-    max_delivery_days: int = 7,
-    duration_days: int = 7
+    max_delivery_days: int,
+    duration_days: int,
+    db: AsyncSession
 ) -> Dict[str, Any]:
-    """Create Intent mandate for HNP flow"""
+    """
+    Create Intent mandate for HNP flow and save to database.
+
+    IMPORTANT: Intent must be saved to database BEFORE user signs it,
+    so that /api/mandates/sign endpoint can find and update it.
+
+    Args:
+        user_id: User identifier
+        product_query: Product search query
+        max_price_cents: Maximum price constraint in cents
+        max_delivery_days: Maximum delivery time constraint in days
+        duration_days: How long to monitor for price drops
+        db: Database session from endpoint
+
+    Returns:
+        Dict for JSON serialization in tools
+    """
     from datetime import datetime, timedelta
+    from ..services.mandate_service import create_intent_mandate
+
     intent_id = f"intent_hnp_{uuid.uuid4().hex[:16]}"
     expiration = datetime.utcnow() + timedelta(days=duration_days)
 
-    return {
-        "mandate_id": intent_id,
-        "mandate_type": "intent",
-        "user_id": user_id,
-        "scenario": "human_not_present",
-        "product_query": product_query,
-        "constraints": {
-            "max_price_cents": max_price_cents,
-            "max_delivery_days": max_delivery_days,
-            "currency": "USD"
-        },
-        "expiration": expiration.isoformat(),
-        "signature": None  # Will be added when user signs
+    constraints = {
+        "max_price_cents": max_price_cents,
+        "max_delivery_days": max_delivery_days,
+        "currency": "USD"
     }
 
+    # Save Intent to database
+    intent_mandate = await create_intent_mandate(
+        db=db,
+        user_id=user_id,
+        scenario="human_not_present",
+        product_query=product_query,
+        constraints=constraints,
+        expiration=expiration,
+        signature_required=True
+    )
 
-def request_intent_signature_wrapper(
+    # Convert Pydantic model to dict with ISO datetime strings
+    intent_dict = intent_mandate.model_dump()
+
+    # Ensure expiration is ISO string (Pydantic should handle this, but be explicit)
+    if "expiration" in intent_dict and isinstance(intent_dict["expiration"], datetime):
+        intent_dict["expiration"] = intent_dict["expiration"].isoformat()
+
+    # Ensure signature timestamp is ISO string if present
+    if "signature" in intent_dict and intent_dict["signature"]:
+        if "timestamp" in intent_dict["signature"] and isinstance(intent_dict["signature"]["timestamp"], datetime):
+            intent_dict["signature"]["timestamp"] = intent_dict["signature"]["timestamp"].isoformat()
+
+    return intent_dict
+
+
+def create_request_intent_signature_wrapper(sse_emit_fn):
+    """Create request_intent_signature wrapper with SSE emitter"""
+    def request_intent_signature_wrapper(
+        user_id: str,
+        mandate_id: str,
+        mandate_type: str,
+        summary: str,
+        hnp_warning: bool = False,
+        mandate_data: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Request user to sign Intent mandate with HNP warning"""
+
+        # Emit SSE event to frontend to trigger signature modal
+        sse_emit_fn("signature_requested", {
+            "mandate_id": mandate_id,
+            "mandate_type": mandate_type,
+            "user_id": user_id,
+            "summary": summary,
+            "hnp_warning": hnp_warning,
+            "mandate_data": mandate_data or {},
+            "constraints": mandate_data.get("constraints") if mandate_data else None
+        })
+
+        logger.info(f"Emitted signature_requested SSE event for Intent: {mandate_id}")
+
+        return {
+            "signature_required": True,
+            "mandate_id": mandate_id,
+            "mandate_type": mandate_type,
+            "user_id": user_id,
+            "summary": summary,
+            "hnp_warning": hnp_warning,
+            "mandate_data": mandate_data or {},
+            "message": f"Signature request sent. Please approve in the modal."
+        }
+
+    return request_intent_signature_wrapper
+
+
+async def activate_monitoring_wrapper(
     user_id: str,
-    mandate_id: str,
-    mandate_type: str,
-    summary: str,
-    hnp_warning: bool = False,
-    mandate_data: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
-    """Request user to sign Intent mandate with HNP warning"""
-    return {
-        "signature_required": True,
-        "mandate_id": mandate_id,
-        "mandate_type": mandate_type,
-        "user_id": user_id,
-        "summary": summary,
-        "hnp_warning": hnp_warning,
-        "mandate_data": mandate_data or {},  # Include mandate data for frontend to sign
-        "message": f"Please authorize monitoring with biometric signature. {summary}"
-    }
-
-
-def activate_monitoring_wrapper(
-    user_id: str,
-    intent_mandate: Dict[str, Any]
+    intent_mandate: Dict[str, Any],
+    db: AsyncSession
 ) -> Dict[str, Any]:
     """
     Activate monitoring job - creates actual APScheduler job.
 
-    NOTE: This is a SYNC wrapper around ASYNC create_monitoring_job.
-    Called by HNP agent tool (sync context) but needs to schedule async job.
+    Async wrapper for create_monitoring_job that can be called from Strands async tools.
+
+    Args:
+        user_id: User identifier
+        intent_mandate: Signed Intent mandate data
+        db: Database session from endpoint
+
+    Returns:
+        Dict with job details (job_id, check_interval, expires_at)
     """
-    import asyncio
     from ..services.monitoring_service import create_monitoring_job
     from ..agents.payment_agent.agent import create_payment_agent
     from ..mocks.credentials_provider import get_payment_methods
     from ..mocks.payment_processor import authorize_payment
-    from ..db.init_db import AsyncSessionLocal
 
     # Create Payment Agent for autonomous purchases
     def credentials_wrapper(uid: str):
@@ -140,24 +199,16 @@ def activate_monitoring_wrapper(
         payment_processor=payment_wrapper
     )
 
-    # Run async create_monitoring_job in sync context
-    async def _create_job():
-        async with AsyncSessionLocal() as db:
-            return await create_monitoring_job(
-                db=db,
-                intent_mandate=intent_mandate,
-                payment_agent=payment_agent,
-                sse_manager=None
-            )
+    # Use passed db session instead of creating new one
+    result = await create_monitoring_job(
+        db=db,
+        intent_mandate=intent_mandate,
+        payment_agent=payment_agent,
+        sse_manager=None
+    )
 
-    # Execute async function
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        result = loop.run_until_complete(_create_job())
-        return result
-    finally:
-        loop.close()
+    logger.info(f"✅ Monitoring job activated: {result.get('job_id')}")
+    return result
 
 
 def credentials_provider_wrapper(user_id: str) -> Dict[str, Any]:
@@ -264,53 +315,69 @@ def create_cart_mandate(
 
     for product, quantity in zip(products, quantities):
         unit_price_cents = product["price_cents"]
-        subtotal_item_cents = unit_price_cents * quantity
+        line_total_cents = unit_price_cents * quantity
 
         items.append({
             "product_id": product["product_id"],
             "product_name": product["name"],
             "quantity": quantity,
             "unit_price_cents": unit_price_cents,
-            "subtotal_cents": subtotal_item_cents
+            "line_total_cents": line_total_cents  # Match LineItem model field name
         })
 
-        subtotal_cents += subtotal_item_cents
+        subtotal_cents += line_total_cents
 
     tax_cents = int(subtotal_cents * 0.08)
     shipping_cents = 1000
-    total_cents = subtotal_cents + tax_cents + shipping_cents
+    grand_total_cents = subtotal_cents + tax_cents + shipping_cents
 
     delivery_estimate_days = max(p["delivery_estimate_days"] for p in products)
 
     return {
         "mandate_id": cart_id,
         "mandate_type": "cart",
-        "user_id": user_id,
         "items": items,
         "total": {
             "subtotal_cents": subtotal_cents,
             "tax_cents": tax_cents,
             "shipping_cents": shipping_cents,
-            "total_cents": total_cents
+            "grand_total_cents": grand_total_cents,  # Match TotalObject model field name
+            "currency": "USD"
         },
         "merchant_info": {
             "merchant_id": "merchant_ghostcart_demo",
-            "merchant_name": "GhostCart Demo Store"
+            "merchant_name": "GhostCart Demo Store",
+            "merchant_url": "https://demo.ghostcart.com"  # Required by MerchantInfo model
         },
         "delivery_estimate_days": delivery_estimate_days,
-        "references": intent_id,
+        "references": {
+            "intent_mandate_id": intent_id  # Match ReferencesObject model structure
+        },
         "signature": None
     }
 
 
-async def save_cart_mandate(cart_data: Dict[str, Any], db: AsyncSession) -> None:
-    """Save unsigned cart mandate to database."""
+async def save_cart_mandate(cart_data: Dict[str, Any], db: AsyncSession, user_id: str = None) -> None:
+    """Save unsigned cart mandate to database.
+
+    Args:
+        cart_data: Cart mandate JSON (user_id not included per AP2 spec)
+        db: Database session
+        user_id: User ID for database record (passed separately)
+    """
     from ..db.models import MandateModel
+
+    # Get user_id from parameter, signature, or default to pending
+    db_user_id = user_id
+    if not db_user_id and cart_data.get("signature"):
+        db_user_id = cart_data["signature"].get("signer_identity", "unknown")
+    if not db_user_id:
+        db_user_id = "pending"
 
     db_mandate = MandateModel(
         id=cart_data["mandate_id"],
         mandate_type="cart",
-        user_id=cart_data["user_id"],
+        user_id=db_user_id,
         transaction_id=None,
         mandate_data=json.dumps(cart_data),
         signer_identity="pending",  # Placeholder for NOT NULL constraint
@@ -540,7 +607,34 @@ async def chat_stream_endpoint(
 
             # Create wrapper for saving cart mandate
             async def save_cart_wrapper(cart_data: Dict[str, Any]):
-                return await save_cart_mandate(cart_data, db)
+                return await save_cart_mandate(cart_data, db, user_id)
+
+            # Create wrappers for HNP functions that pass db session
+            async def create_intent_wrapper(
+                user_id: str,
+                product_query: str,
+                max_price_cents: int,
+                max_delivery_days: int = 7,
+                duration_days: int = 7
+            ):
+                return await create_hnp_intent_wrapper(
+                    user_id=user_id,
+                    product_query=product_query,
+                    max_price_cents=max_price_cents,
+                    max_delivery_days=max_delivery_days,
+                    duration_days=duration_days,
+                    db=db
+                )
+
+            async def activate_monitoring_wrapper_closure(
+                user_id: str,
+                intent_mandate: Dict[str, Any]
+            ):
+                return await activate_monitoring_wrapper(
+                    user_id=user_id,
+                    intent_mandate=intent_mandate,
+                    db=db
+                )
 
             # Create HP Shopping Agent (STATELESS - no session_manager)
             # HP agent receives context from Supervisor's message history
@@ -553,17 +647,21 @@ async def chat_stream_endpoint(
                 product_lookup_fn=get_product_by_id,
                 get_signed_mandate_fn=get_mandate_wrapper,
                 save_cart_fn=save_cart_wrapper,
-                sse_emit_fn=sync_sse_emit
+                sse_emit_fn=sync_sse_emit,
+                db_session=db,  # Pass db session for transaction creation
+                user_id=user_id  # Pass user_id so agent doesn't ask for it
             )
 
             # Create HNP Delegate Agent (STATELESS - no session_manager)
             # HNP agent receives context from Supervisor's message history
             hnp_agent = create_hnp_delegate_agent(
                 search_products_func=search_products,
-                create_intent_func=create_hnp_intent_wrapper,
-                request_signature_func=request_intent_signature_wrapper,
-                activate_monitoring_func=activate_monitoring_wrapper,
-                sse_emit_fn=sync_sse_emit
+                create_intent_func=create_intent_wrapper,
+                request_signature_func=create_request_intent_signature_wrapper(sync_sse_emit),
+                activate_monitoring_func=activate_monitoring_wrapper_closure,
+                get_signed_mandate_fn=get_mandate_wrapper,
+                sse_emit_fn=sync_sse_emit,
+                user_id=user_id  # Pass user_id so tools don't need to ask for it
             )
 
             # Create Supervisor Agent with SessionManager (ONLY agent with persistence)
@@ -624,11 +722,21 @@ async def chat_stream_endpoint(
                 # Tool being executed
                 if "current_tool_use" in event:
                     tool_info = event["current_tool_use"]
-                    yield format_sse_event("tool_use", {
-                        "tool_name": tool_info.get("name"),
-                        "tool_input": tool_info.get("input"),
-                        "message": f"Executing {tool_info.get('name')}..."
-                    })
+                    tool_name = tool_info.get("name")
+
+                    # Emit routing event when Supervisor delegates to specialist agents
+                    if tool_name in ["shopping_assistant", "monitoring_assistant"]:
+                        yield format_sse_event("tool_use", {
+                            "tool_name": tool_name,
+                            "tool_input": tool_info.get("input"),
+                            "message": "Routing to specialized agent..."
+                        })
+                    else:
+                        yield format_sse_event("tool_use", {
+                            "tool_name": tool_name,
+                            "tool_input": tool_info.get("input"),
+                            "message": f"Executing {tool_name}..."
+                        })
 
                 # Final result
                 if "result" in event:

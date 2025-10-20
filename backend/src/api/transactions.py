@@ -164,6 +164,7 @@ async def get_user_transactions_endpoint(
                 "currency": t.currency,
                 "cart_mandate_id": t.cart_mandate_id,
                 "intent_mandate_id": t.intent_mandate_id,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
             }
             for t in transactions
         ]

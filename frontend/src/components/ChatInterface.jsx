@@ -26,6 +26,8 @@ export default function ChatInterface() {
   const messagesEndRef = useRef(null);
   const welcomeShown = useRef(null);
   const eventSourceRef = useRef(null);
+  const shownToolNotifications = useRef(new Set());
+  const messageIdCounter = useRef(0);
 
   // Signature Modal State
   const [showSignatureModal, setShowSignatureModal] = useState(false);
@@ -38,6 +40,9 @@ export default function ChatInterface() {
 
   // Mandate Chain State
   const [mandateChain, setMandateChain] = useState(null);
+
+  // Monitoring Status State (for real-time status card updates)
+  const [monitoringStatus, setMonitoringStatus] = useState(null);
 
   /**
    * Auto-scroll to bottom when new messages arrive
@@ -75,7 +80,10 @@ export default function ChatInterface() {
    * Add message to chat history
    */
   const addMessage = (message) => {
-    setMessages(prev => [...prev, { id: Date.now(), ...message }]);
+    messageIdCounter.current += 1;
+    // Use counter + timestamp to ensure absolute uniqueness even across remounts
+    const uniqueId = `${Date.now()}-${messageIdCounter.current}`;
+    setMessages(prev => [...prev, { id: uniqueId, ...message }]);
   };
 
   /**
@@ -96,6 +104,9 @@ export default function ChatInterface() {
       content: userMessage,
       timestamp: new Date()
     });
+
+    // Reset tool notifications tracker for new message
+    shownToolNotifications.current = new Set();
 
     try {
       // Build streaming URL
@@ -148,19 +159,23 @@ export default function ChatInterface() {
         const data = JSON.parse(e.data);
         console.log('Tool use:', data);
 
-        // Show tool execution message
-        if (data.tool_name === 'search_products') {
-          addMessage({
-            type: 'system',
-            content: '🔍 Searching products...',
-            timestamp: new Date()
-          });
-        } else if (data.tool_name === 'shopping_assistant') {
-          addMessage({
-            type: 'system',
-            content: '🛍️ Routing to shopping assistant...',
-            timestamp: new Date()
-          });
+        // Show tool execution message (only once per tool per message)
+        if (!shownToolNotifications.current.has(data.tool_name)) {
+          shownToolNotifications.current.add(data.tool_name);
+          
+          if (data.tool_name === 'search_products') {
+            addMessage({
+              type: 'system',
+              content: '🔍 Searching products...',
+              timestamp: new Date()
+            });
+          } else if (data.tool_name === 'shopping_assistant' || data.tool_name === 'monitoring_assistant') {
+            addMessage({
+              type: 'system',
+              content: '🔄 Routing to specialized agent...',
+              timestamp: new Date()
+            });
+          }
         }
       });
 
@@ -185,8 +200,8 @@ export default function ChatInterface() {
         // Store cart data for signing later
         setPendingCartData(data);
 
-        // Extract total_cents from total object
-        const totalCents = data.total?.total_cents || 0;
+        // Extract grand_total_cents from total object
+        const totalCents = data.total?.grand_total_cents || 0;
 
         addMessage({
           type: 'system',
@@ -223,6 +238,114 @@ export default function ChatInterface() {
         addMessage({
           type: 'system',
           content: '🔐 Signature required - please review and approve',
+          timestamp: new Date()
+        });
+      });
+
+      // Handle monitoring check started (FR-043)
+      eventSource.addEventListener('monitoring_check_started', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('Monitoring check started:', data);
+
+        // Update monitoring status with "checking" indicator
+        setMonitoringStatus(prev => ({
+          ...prev,
+          checking: true,
+          last_check_time: data.timestamp
+        }));
+
+        addMessage({
+          type: 'system',
+          content: `🔍 ${data.message}`,
+          timestamp: new Date()
+        });
+      });
+
+      // Handle monitoring check complete (FR-018)
+      eventSource.addEventListener('monitoring_check_complete', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('Monitoring check complete:', data);
+
+        // Update monitoring status with check results
+        setMonitoringStatus({
+          checking: false,
+          current_price_cents: data.current_price_cents,
+          current_delivery_days: data.current_delivery_days,
+          current_stock_status: data.current_stock_status,
+          target_price_cents: data.target_price_cents,
+          target_delivery_days: data.target_delivery_days,
+          reason: data.reason,
+          last_check_at: data.last_check_at
+        });
+
+        if (data.status === 'conditions_not_met') {
+          addMessage({
+            type: 'monitoring_status',
+            content: data.message,
+            data: data,  // Pass full data for status card
+            timestamp: new Date()
+          });
+        }
+      });
+
+      // Handle monitoring expired (FR-049)
+      eventSource.addEventListener('monitoring_expired', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('Monitoring expired:', data);
+
+        addMessage({
+          type: 'warning',
+          content: data.message,
+          data: data,  // Include action_available for "Set Up New Monitoring" button
+          timestamp: new Date()
+        });
+      });
+
+      // Handle autonomous purchase starting
+      eventSource.addEventListener('autonomous_purchase_starting', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('Autonomous purchase starting:', data);
+
+        addMessage({
+          type: 'success',
+          content: `🎉 ${data.message} Product: ${data.product.name} at $${(data.product.price_cents / 100).toFixed(2)}`,
+          timestamp: new Date()
+        });
+      });
+
+      // Handle autonomous cart created
+      eventSource.addEventListener('autonomous_cart_created', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('Autonomous cart created:', data);
+
+        addMessage({
+          type: 'system',
+          content: `✓ Cart created autonomously (agent-signed) - Total: $${(data.total_cents / 100).toFixed(2)}`,
+          timestamp: new Date()
+        });
+      });
+
+      // Handle autonomous purchase complete
+      eventSource.addEventListener('autonomous_purchase_complete', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('Autonomous purchase complete:', data);
+
+        addMessage({
+          type: 'success',
+          content: `✅ Autonomous Purchase Complete!\n\n${data.product_name} purchased for $${(data.amount_cents / 100).toFixed(2)}\nTransaction ID: ${data.transaction_id}\nAuthorization: ${data.authorization_code}`,
+          data: data,  // Pass for "View Chain" button
+          timestamp: new Date()
+        });
+      });
+
+      // Handle autonomous purchase failed
+      eventSource.addEventListener('autonomous_purchase_failed', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('Autonomous purchase failed:', data);
+
+        addMessage({
+          type: 'error',
+          content: `❌ Autonomous purchase failed: ${data.error || data.message}`,
           timestamp: new Date()
         });
       });
@@ -451,8 +574,8 @@ export default function ChatInterface() {
     switch (msg.type) {
       case 'user':
         return (
-          <div key={msg.id} className="flex justify-end mb-4">
-            <div className="bg-blue-500 text-white rounded-lg px-4 py-2 max-w-md">
+          <div key={msg.id} className="flex justify-end mb-4 animate-slide-up">
+            <div className="message-bubble user">
               {msg.content}
             </div>
           </div>
@@ -460,17 +583,24 @@ export default function ChatInterface() {
 
       case 'agent':
         return (
-          <div key={msg.id} className="flex justify-start mb-4">
-            <div className="bg-gray-200 text-gray-800 rounded-lg px-4 py-2 max-w-md">
-              {msg.content}
+          <div key={msg.id} className="flex justify-start mb-4 animate-slide-up">
+            <div className="message-bubble agent">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                  </svg>
+                </div>
+                <div className="flex-1">{msg.content}</div>
+              </div>
             </div>
           </div>
         );
 
       case 'system':
         return (
-          <div key={msg.id} className="flex justify-center mb-4">
-            <div className="bg-yellow-100 text-yellow-800 rounded-lg px-4 py-2 text-sm">
+          <div key={msg.id} className="flex justify-center mb-4 animate-fade-in">
+            <div className="badge badge-warning">
               {msg.content}
             </div>
           </div>
@@ -478,27 +608,42 @@ export default function ChatInterface() {
 
       case 'products':
         return (
-          <div key={msg.id} className="flex justify-start mb-4">
-            <div className="bg-gray-100 rounded-lg px-4 py-2 max-w-2xl">
-              <div className="font-semibold mb-2">{msg.content}</div>
-              {msg.products && msg.products.map((product, idx) => (
-                <div key={idx} className="border-t pt-2 mt-2">
-                  <div className="font-medium">{product.name}</div>
-                  <div className="text-sm text-gray-600">
-                    ${(product.price_cents / 100).toFixed(2)}
-                    {product.stock_status === 'in_stock' ? ' • In stock' : ' • Out of stock'}
-                    {product.delivery_estimate_days && ` • Ships in ${product.delivery_estimate_days} days`}
+          <div key={msg.id} className="flex justify-start mb-4 animate-slide-up">
+            <div className="modern-card px-4 py-3 max-w-2xl">
+              <div className="font-semibold mb-3 text-primary flex items-center gap-2">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                </svg>
+                {msg.content}
+              </div>
+              <div className="space-y-2">
+                {msg.products && msg.products.map((product, idx) => (
+                  <div key={idx} className="product-card">
+                    <div className="font-medium text-secondary mb-2">{product.name}</div>
+                    <div className="flex items-center gap-3 text-sm">
+                      <span className="text-success font-semibold text-lg">
+                        ${(product.price_cents / 100).toFixed(2)}
+                      </span>
+                      {product.stock_status === 'in_stock' ? (
+                        <span className="badge badge-success">In Stock</span>
+                      ) : (
+                        <span className="badge badge-error">Out of Stock</span>
+                      )}
+                      {product.delivery_estimate_days && (
+                        <span className="text-neutral-600 text-xs">Ships in {product.delivery_estimate_days}d</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           </div>
         );
 
       case 'success':
         return (
-          <div key={msg.id} className="flex justify-center mb-4">
-            <div className="bg-green-100 text-green-800 rounded-lg px-4 py-2 text-sm">
+          <div key={msg.id} className="flex justify-center mb-4 animate-fade-in">
+            <div className="badge badge-success">
               ✓ {msg.content}
             </div>
           </div>
@@ -506,8 +651,8 @@ export default function ChatInterface() {
 
       case 'error':
         return (
-          <div key={msg.id} className="flex justify-center mb-4">
-            <div className="bg-red-100 text-red-800 rounded-lg px-4 py-2 text-sm">
+          <div key={msg.id} className="flex justify-center mb-4 animate-fade-in">
+            <div className="badge badge-error">
               ✗ {msg.content}
             </div>
           </div>
@@ -521,15 +666,24 @@ export default function ChatInterface() {
   return (
     <div className="flex flex-col h-full">
       {/* Chat Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+      <div className="flex-1 scrollable-container p-4 space-y-2">
         {messages.map(renderMessage)}
 
         {/* Streaming message (being typed in real-time) */}
         {isStreaming && currentStreamingMessage && (
-          <div className="flex justify-start mb-4">
-            <div className="bg-gray-200 text-gray-800 rounded-lg px-4 py-2 max-w-md">
-              {currentStreamingMessage}
-              <span className="animate-pulse">▊</span>
+          <div className="flex justify-start mb-4 animate-slide-up">
+            <div className="message-bubble agent">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-4 h-4 text-primary animate-pulse-subtle" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  {currentStreamingMessage}
+                  <span className="inline-block w-1.5 h-4 bg-primary ml-1 animate-pulse"></span>
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -538,24 +692,74 @@ export default function ChatInterface() {
       </div>
 
       {/* Input Area */}
-      <div className="border-t p-4">
-        <div className="flex gap-2">
+      <div className="border-t border-neutral-200 p-4 flex-shrink-0">
+        <div className="flex gap-3">
           <input
             type="text"
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="Type your message..."
+            placeholder="Ask me to find products or set up monitoring..."
             disabled={isSending}
-            className="flex-1 border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="input-modern disabled:opacity-50"
           />
           <button
             onClick={handleSendMessage}
             disabled={isSending || !inputMessage.trim()}
-            className="bg-blue-500 text-white px-6 py-2 rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
+            className="btn-primary"
           >
-            {isSending ? 'Sending...' : 'Send'}
+            {isSending ? (
+              <span className="flex items-center gap-2">
+                <div className="spinner w-5 h-5"></div>
+                Sending
+              </span>
+            ) : (
+              <span className="flex items-center gap-2">
+                Send
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 9l3 3m0 0l-3 3m3-3H8m13 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </span>
+            )}
           </button>
+        </div>
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-neutral-600 text-center font-semibold">
+            Try these sample queries:
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setInputMessage("Find AirPods under $200")}
+              disabled={isSending || isStreaming}
+              className="text-xs px-3 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary/10"
+            >
+              🎧 HP: AirPods under $200
+            </button>
+            <button
+              onClick={() => setInputMessage("Find coffee maker under $70")}
+              disabled={isSending || isStreaming}
+              className="text-xs px-3 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary/10"
+            >
+              ☕ HP: Coffee maker
+            </button>
+            <button
+              onClick={() => setInputMessage("Monitor for Sony headphones under $350")}
+              disabled={isSending || isStreaming}
+              className="text-xs px-3 py-2 bg-accent/10 hover:bg-accent/20 text-accent rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-accent/10"
+            >
+              🎵 HNP: Sony headphones
+            </button>
+            <button
+              onClick={() => setInputMessage("Monitor for Dyson vacuum under $550")}
+              disabled={isSending || isStreaming}
+              className="text-xs px-3 py-2 bg-accent/10 hover:bg-accent/20 text-accent rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-accent/10"
+            >
+              🧹 HNP: Dyson vacuum
+            </button>
+          </div>
+          <p className="text-xs text-neutral-500 text-center italic">
+            HP = Immediate purchase • HNP = Autonomous monitoring
+          </p>
         </div>
       </div>
 

@@ -21,8 +21,22 @@ def create_canonical_json(data: Dict[str, Any]) -> str:
     - Sorted keys
     - No whitespace
     - UTF-8 encoding
+    - Datetime objects converted to ISO strings
     """
-    return json.dumps(data, sort_keys=True, separators=(',', ':'))
+    def convert_datetime(obj):
+        """Convert datetime objects to ISO strings for JSON serialization"""
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        elif isinstance(obj, dict):
+            return {k: convert_datetime(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_datetime(item) for item in obj]
+        return obj
+
+    # Convert all datetime objects to ISO strings
+    serializable_data = convert_datetime(data)
+
+    return json.dumps(serializable_data, sort_keys=True, separators=(',', ':'))
 
 
 def sign_mandate(
