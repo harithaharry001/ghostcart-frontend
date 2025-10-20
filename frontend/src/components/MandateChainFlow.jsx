@@ -58,7 +58,7 @@ export default function MandateChainFlow({ mode = 'hp', chain = null }) {
         status: 'Autonomous Action',
         signed: 'Agent Signed 🤖',
         description: 'Agent acted on your behalf based on Intent authority per AP2 specification',
-        tooltip: 'Cart Mandate created by agent (NOT user signature) when monitoring conditions satisfied. References Intent Mandate ID showing required mandate chain link per AP2 specification. Agent validates Cart does not exceed Intent constraints before proceeding.'
+        tooltip: 'Agent acted on your behalf based on Intent authority per AP2 specification. Cart Mandate created by agent (NOT user signature) when monitoring conditions satisfied. References Intent Mandate ID showing required mandate chain link.'
       }
     },
     {
