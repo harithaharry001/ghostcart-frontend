@@ -81,6 +81,3 @@ coverage/
 Thumbs.db
 *~
 .sessions/
-.claude/
-.specify/
-CLAUDE.md

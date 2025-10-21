@@ -227,6 +227,79 @@
   }
 }
 
+/* Markdown prose styling for agent messages */
+.prose {
+  @apply text-secondary;
+}
+
+.prose p {
+  @apply mb-3 last:mb-0 leading-relaxed;
+}
+
+.prose ol {
+  @apply list-decimal list-inside space-y-2 my-3;
+}
+
+.prose ul {
+  @apply list-disc list-inside space-y-2 my-3;
+}
+
+.prose li {
+  @apply ml-2 leading-relaxed;
+}
+
+.prose li::marker {
+  @apply text-primary font-semibold;
+}
+
+.prose strong {
+  @apply font-semibold text-secondary;
+}
+
+.prose em {
+  @apply italic text-neutral-700;
+}
+
+.prose code {
+  @apply bg-neutral-100 px-1.5 py-0.5 rounded text-sm font-mono text-accent-dark;
+}
+
+.prose pre {
+  @apply bg-neutral-100 p-3 rounded-lg text-sm font-mono my-2 overflow-x-auto;
+}
+
+.prose pre code {
+  @apply bg-transparent p-0;
+}
+
+.prose a {
+  @apply text-primary hover:text-primary-dark underline;
+}
+
+.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+  @apply font-semibold text-secondary mt-4 mb-2;
+}
+
+.prose h1 {
+  @apply text-xl;
+}
+
+.prose h2 {
+  @apply text-lg;
+}
+
+.prose h3 {
+  @apply text-base;
+}
+
+.prose blockquote {
+  @apply border-l-4 border-primary/30 pl-4 italic text-neutral-700 my-3;
+}
+
+.prose hr {
+  @apply border-neutral-200 my-4;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

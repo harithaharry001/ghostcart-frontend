@@ -50,6 +50,9 @@ export default function OrdersSection({ userId }) {
 
     if (userId) {
       fetchTransactions();
+    } else {
+      // If no userId, stop loading immediately
+      setLoading(false);
     }
   }, [userId]);
 
@@ -106,44 +109,6 @@ export default function OrdersSection({ userId }) {
     });
   };
 
-  if (loading) {
-    return (
-      <div className="modern-card p-6">
-        <div className="flex items-center justify-center gap-3">
-          <div className="spinner w-5 h-5"></div>
-          <p className="text-neutral-600">Loading transactions...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="modern-card p-6 border-error/20">
-        <div className="flex items-center gap-3 text-error">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <p>Error loading transactions: {error}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (transactions.length === 0) {
-    return (
-      <div className="modern-card p-8 text-center">
-        <svg className="w-16 h-16 mx-auto text-neutral-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-        </svg>
-        <p className="text-neutral-600 font-medium mb-2">No Orders Yet</p>
-        <p className="text-neutral-500 text-sm">
-          Complete a purchase using HP (immediate) or HNP (monitored) flow to see your order history here.
-        </p>
-      </div>
-    );
-  }
-
   /**
    * Refresh transactions manually
    */
@@ -169,6 +134,7 @@ export default function OrdersSection({ userId }) {
 
   return (
     <div className="space-y-4">
+      {/* Header - Always visible */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <h3 className="text-lg font-semibold text-secondary">Order History</h3>
@@ -196,9 +162,45 @@ export default function OrdersSection({ userId }) {
         <span className="badge badge-info">{transactions.length} order{transactions.length !== 1 ? 's' : ''}</span>
       </div>
 
-      {/* Scrollable container for transactions */}
-      <div className="max-h-[600px] overflow-y-auto space-y-4 pr-2">
-        {transactions.map((txn) => (
+      {/* Loading State */}
+      {loading && (
+        <div className="modern-card p-6">
+          <div className="flex items-center justify-center gap-3">
+            <div className="spinner w-5 h-5"></div>
+            <p className="text-neutral-600">Loading transactions...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Error State */}
+      {!loading && error && (
+        <div className="modern-card p-6 border-error/20">
+          <div className="flex items-center gap-3 text-error">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p>Error loading transactions: {error}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!loading && !error && transactions.length === 0 && (
+        <div className="modern-card p-8 text-center">
+          <svg className="w-16 h-16 mx-auto text-neutral-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+          </svg>
+          <p className="text-neutral-600 font-medium mb-2">No Orders Yet</p>
+          <p className="text-neutral-500 text-sm">
+            Complete a purchase using HP (immediate) or HNP (monitored) flow to see your order history here.
+          </p>
+        </div>
+      )}
+
+      {/* Transactions List */}
+      {!loading && !error && transactions.length > 0 && (
+        <div className="max-h-[600px] overflow-y-auto space-y-4 pr-2">
+          {transactions.map((txn) => (
         <div key={txn.transaction_id} className="modern-card">
           {/* Transaction Header */}
           <div
@@ -276,8 +278,9 @@ export default function OrdersSection({ userId }) {
             </div>
           )}
         </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

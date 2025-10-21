@@ -10,6 +10,7 @@
  * - Streams payment processing status
  */
 import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { useSession } from '../context/SessionContext';
 import SignatureModal from './SignatureModal';
 import MandateChainViz from './MandateChainViz';
@@ -200,12 +201,16 @@ export default function ChatInterface() {
         // Store cart data for signing later
         setPendingCartData(data);
 
-        // Extract grand_total_cents from total object
-        const totalCents = data.total?.grand_total_cents || 0;
+        // Extract total breakdown from total object
+        const totalObj = data.total || {};
+        const subtotalCents = totalObj.subtotal_cents || 0;
+        const taxCents = totalObj.tax_cents || 0;
+        const shippingCents = totalObj.shipping_cents || 0;
+        const grandTotalCents = totalObj.grand_total_cents || 0;
 
         addMessage({
           type: 'system',
-          content: `✓ Cart created: ${data.items && data.items.length} item(s), Total: $${(totalCents / 100).toFixed(2)}`,
+          content: `✓ Cart created: ${data.items && data.items.length} item(s) | Subtotal: $${(subtotalCents / 100).toFixed(2)} + Tax: $${(taxCents / 100).toFixed(2)} + Shipping: $${(shippingCents / 100).toFixed(2)} = Total: $${(grandTotalCents / 100).toFixed(2)}`,
           timestamp: new Date()
         });
       });
@@ -591,7 +596,24 @@ export default function ChatInterface() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                   </svg>
                 </div>
-                <div className="flex-1">{msg.content}</div>
+                <div className="flex-1 prose prose-sm max-w-none">
+                  <ReactMarkdown
+                    components={{
+                      p: ({node, ...props}) => <p className="mb-3 last:mb-0" {...props} />,
+                      ol: ({node, ...props}) => <ol className="list-decimal list-inside space-y-2 my-3" {...props} />,
+                      ul: ({node, ...props}) => <ul className="list-disc list-inside space-y-2 my-3" {...props} />,
+                      li: ({node, ...props}) => <li className="ml-2" {...props} />,
+                      strong: ({node, ...props}) => <strong className="font-semibold text-secondary" {...props} />,
+                      em: ({node, ...props}) => <em className="italic" {...props} />,
+                      code: ({node, inline, ...props}) => 
+                        inline ? 
+                          <code className="bg-neutral-100 px-1.5 py-0.5 rounded text-sm font-mono" {...props} /> :
+                          <code className="block bg-neutral-100 p-3 rounded-lg text-sm font-mono my-2" {...props} />
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
+                </div>
               </div>
             </div>
           </div>
@@ -679,8 +701,23 @@ export default function ChatInterface() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                   </svg>
                 </div>
-                <div className="flex-1">
-                  {currentStreamingMessage}
+                <div className="flex-1 prose prose-sm max-w-none">
+                  <ReactMarkdown
+                    components={{
+                      p: ({node, ...props}) => <p className="mb-3 last:mb-0" {...props} />,
+                      ol: ({node, ...props}) => <ol className="list-decimal list-inside space-y-2 my-3" {...props} />,
+                      ul: ({node, ...props}) => <ul className="list-disc list-inside space-y-2 my-3" {...props} />,
+                      li: ({node, ...props}) => <li className="ml-2" {...props} />,
+                      strong: ({node, ...props}) => <strong className="font-semibold text-secondary" {...props} />,
+                      em: ({node, ...props}) => <em className="italic" {...props} />,
+                      code: ({node, inline, ...props}) => 
+                        inline ? 
+                          <code className="bg-neutral-100 px-1.5 py-0.5 rounded text-sm font-mono" {...props} /> :
+                          <code className="block bg-neutral-100 p-3 rounded-lg text-sm font-mono my-2" {...props} />
+                    }}
+                  >
+                    {currentStreamingMessage}
+                  </ReactMarkdown>
                   <span className="inline-block w-1.5 h-4 bg-primary ml-1 animate-pulse"></span>
                 </div>
               </div>
