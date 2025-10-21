@@ -46,8 +46,8 @@ aws ecr get-login-password --region $AWS_REGION | \
 echo -e "${GREEN}✓ Logged in to ECR${NC}"
 
 # Build Docker image
-echo -e "\n${YELLOW}Building backend Docker image...${NC}"
-docker build -f backend-only.Dockerfile -t $ECR_REPOSITORY:latest .
+echo -e "\n${YELLOW}Building backend Docker image for AMD64 (x86_64)...${NC}"
+docker build --platform linux/amd64 -f backend-only.Dockerfile -t $ECR_REPOSITORY:latest .
 echo -e "${GREEN}✓ Docker image built${NC}"
 
 # Tag and push image
