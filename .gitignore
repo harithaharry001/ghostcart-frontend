@@ -46,11 +46,14 @@ build/
 .env.*.local
 *.env
 
-# Database
+# Database (SQLite)
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 ghostcart.db
+ghostcart_scheduler.db
 
 # IDE
 .vscode/
@@ -81,3 +84,6 @@ coverage/
 Thumbs.db
 *~
 .sessions/
+
+# Infrastructure (AWS account-specific)
+infrastructure/config.sh

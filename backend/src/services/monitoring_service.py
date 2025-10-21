@@ -350,6 +350,19 @@ async def check_monitoring_conditions(
                 f"Delivery: {matching_product['delivery_estimate_days']}d"
             )
 
+            # GUARD: Check if job is still active before proceeding with purchase
+            # Re-fetch job to get latest state (prevents race condition with concurrent instances)
+            await db.refresh(job)
+            if not job.active:
+                logger.warning(f"Job {intent_mandate_id} already deactivated - skipping duplicate purchase")
+                return
+
+            # GUARD: Deactivate job BEFORE purchase to prevent duplicate transactions
+            # This prevents concurrent job instances from processing the same purchase
+            logger.info(f"Deactivating job {intent_mandate_id} BEFORE purchase to prevent duplicates")
+            await deactivate_job(db, intent_mandate_id, "purchase_starting")
+
+            # Now trigger the purchase (job is already deactivated, so no concurrent instances will proceed)
             await trigger_autonomous_purchase(
                 db=db,
                 intent_data=intent_data,
@@ -358,9 +371,6 @@ async def check_monitoring_conditions(
                 payment_agent=payment_agent,
                 sse_manager=sse_manager
             )
-
-            # Deactivate job after successful purchase
-            await deactivate_job(db, intent_mandate_id, "purchase_complete")
 
             logger.info(f"✅ Check complete: {intent_mandate_id} - Purchase triggered!")
 

@@ -1,0 +1,79 @@
+{
+  "family": "ghostcart-backend",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/GhostCartAppRunnerRole",
+  "containerDefinitions": [
+    {
+      "name": "ghostcart-backend",
+      "image": "ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/ghostcart-backend:latest",
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "essential": true,
+      "environment": [
+        {
+          "name": "AWS_REGION",
+          "value": "us-east-1"
+        },
+        {
+          "name": "AWS_BEDROCK_MODEL_ID",
+          "value": "us.anthropic.claude-sonnet-4-20250514-v1:0"
+        },
+        {
+          "name": "DEMO_MODE",
+          "value": "true"
+        },
+        {
+          "name": "LOG_LEVEL",
+          "value": "INFO"
+        },
+        {
+          "name": "USER_SIGNATURE_SECRET",
+          "value": "user_secret_key_demo_only_change_me"
+        },
+        {
+          "name": "AGENT_SIGNATURE_SECRET",
+          "value": "agent_secret_key_demo_only_change_me"
+        },
+        {
+          "name": "PAYMENT_AGENT_SECRET",
+          "value": "payment_secret_key_demo_only_change_me"
+        },
+        {
+          "name": "DATABASE_PATH",
+          "value": "./ghostcart.db"
+        },
+        {
+          "name": "HOST",
+          "value": "0.0.0.0"
+        },
+        {
+          "name": "PORT",
+          "value": "8000"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/ghostcart-backend",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:8000/api/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}

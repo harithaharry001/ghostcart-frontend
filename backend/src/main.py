@@ -66,7 +66,9 @@ async def lifespan(app: FastAPI):
         logger.info("Bedrock service initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize Bedrock service: {e}")
-        raise
+        if not settings.demo_mode:
+            raise
+        logger.warning("Continuing without Bedrock in demo mode")
 
     # Start APScheduler for monitoring jobs
     try:
@@ -74,7 +76,9 @@ async def lifespan(app: FastAPI):
         logger.info("APScheduler started for HNP monitoring jobs")
     except Exception as e:
         logger.error(f"Failed to start scheduler: {e}")
-        raise
+        if not settings.demo_mode:
+            raise
+        logger.warning("Continuing without scheduler in demo mode")
 
     logger.info("Server startup complete")
 
@@ -103,11 +107,7 @@ app = FastAPI(
 # Configure CORS middleware for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Vite dev server
-        "http://localhost:3000",  # Alternative frontend port
-        "http://127.0.0.1:5173",  # Alternative localhost
-    ],
+    allow_origins=["*"],  # Allow all origins for production deployment
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -205,21 +205,6 @@ async def health_check():
     }
 
 
-# Root endpoint
-@app.get("/")
-async def root():
-    """
-    Root endpoint with API information.
-    """
-    return {
-        "name": "GhostCart API",
-        "version": "0.1.0",
-        "description": "AP2-compliant mandate-based payment demonstration",
-        "documentation": "/docs",
-        "health": "/api/health",
-    }
-
-
 # Include API routers
 app.include_router(products_router, prefix="/api/products", tags=["Products"])
 app.include_router(payments_router, prefix="/api", tags=["Payments"])
@@ -227,7 +212,6 @@ app.include_router(mandates_router, prefix="/api/mandates", tags=["Mandates"])
 app.include_router(transactions_router, prefix="/api/transactions", tags=["Transactions"])
 app.include_router(chat_router, prefix="/api", tags=["Chat"])
 app.include_router(monitoring_router, tags=["Monitoring"])
-
 
 
 if __name__ == "__main__":

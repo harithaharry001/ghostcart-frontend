@@ -1,0 +1,70 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+DEPLOYMENT.md
+docs/
+specs/
+
+# Database files (SQLite)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+*.log
+
+# Frontend (deployed separately to Amplify - exclude entirely)
+frontend/
+
+# Node modules
+node_modules/
+
+# Backend test files
+backend/tests/
+backend/.pytest_cache/
+
+# Deployment files (not needed in container)
+deploy.sh
+deploy-ecs.sh
+deploy-amplify.sh
+infrastructure/
+apprunner.yaml
+budget.json
+Dockerfile
+backend-only.Dockerfile
+ecs-task-definition.json
+.dockerignore

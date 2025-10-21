@@ -79,7 +79,7 @@ class MonitoringScheduler:
 
         job_defaults = {
             'coalesce': True,  # Combine missed runs into one
-            'max_instances': 3,  # Max concurrent instances per job
+            'max_instances': 1,  # Prevent concurrent instances per job (avoid duplicate purchases)
             'misfire_grace_time': 300  # 5 minutes grace period for misfires
         }
 
