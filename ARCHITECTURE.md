@@ -1,8 +1,8 @@
-# GhostCart AP2 Architecture Documentation
+# Strands AP2 Payment Agent Architecture Documentation
 
 ## Overview
 
-**GhostCart** is a full-stack e-commerce demonstration application showcasing the **Agent Payments Protocol (AP2) v0.1** implementation using AWS Bedrock Agent Strands SDK. It demonstrates both human-present (HP) and human-not-present (HNP) purchase flows with intelligent agent orchestration.
+**Strands AP2 Payment Agent** is a full-stack e-commerce demonstration application showcasing the **Agent Payments Protocol (AP2) v0.1** implementation using AWS Bedrock Agent Strands SDK. It demonstrates both human-present (HP) and human-not-present (HNP) purchase flows with intelligent agent orchestration.
 
 **Classification**:
 - Multi-tier web application (Frontend + Backend)
@@ -14,160 +14,198 @@
 
 ## Architecture Diagram
 
+### System Overview
+
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              USER BROWSER                                        │
-│  ┌──────────────────────────────────────────────────────────────────────────┐  │
-│  │  React Frontend (Vite)                                                    │  │
-│  │  ├─ ChatInterface (SSE Streaming)                                         │  │
-│  │  ├─ SignatureModal (Biometric-style signing)                              │  │
-│  │  ├─ MandateChainViz (Intent → Cart → Payment → Transaction)              │  │
-│  │  └─ MonitoringStatusCard (Real-time updates)                              │  │
-│  └──────────────────────────────────────────────────────────────────────────┘  │
-└────────────────────────┬───────────────────────────────────────────────────────┘
-                         │ HTTP/HTTPS + SSE
-                         │ (REST API + Server-Sent Events)
-┌────────────────────────▼───────────────────────────────────────────────────────┐
-│                     AWS INFRASTRUCTURE                                          │
-│  ┌──────────────────────────────────────────────────────────────────────────┐  │
-│  │  Application Load Balancer (ALB)                                          │  │
-│  │  ├─ CloudFront CDN (optional)                                            │  │
-│  │  ├─ HTTP Routing                                                         │  │
-│  │  └─ Health Checks                                                          │  │
-│  └────────────────────┬─────────────────────────────────────────────────────┘  │
-│                       │                                                          │
-│  ┌────────────────────▼─────────────────────────────────────────────────────┐  │
-│  │  ECS Fargate Service                                                      │  │
-│  │  ┌──────────────────────────────────────────────────────────────────────┐│  │
-│  │  │  Docker Container                                                     ││  │
-│  │  │  └─ Backend API (FastAPI on :8000)                                  ││  │
-│  │  └──────────────────────────────────────────────────────────────────────┘│  │
-│  └──────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                  │
-│  ┌──────────────────────────────────────────────────────────────────────────┐  │
-│  │  CloudWatch                                                               │  │
-│  │  ├─ Log Group: /ecs/ghostcart-backend                                    │  │
-│  │  └─ Container Monitoring                                                  │  │
-│  └──────────────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────┐
+│ USER BROWSER │
+└──────┬───────┘
+       │ HTTPS + SSE
+       ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ FRONTEND - AWS Amplify (React + Vite)                           │
+│ • ChatInterface • SignatureModal • MandateChainViz • Monitoring │
+│ • Auto-deployed from GitHub on push to main                     │
+└──────┬──────────────────────────────────────────────────────────┘
+       │
+       ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ BACKEND - AWS INFRASTRUCTURE                                    │
+│                                                                  │
+│  ALB → ECS Fargate (Docker Container)                           │
+│                           ↓                                      │
+│                   FastAPI Backend (:8000)                        │
+│                           ↓                                      │
+│          ┌────────────────┴────────────────┐                    │
+│          ▼                                  ▼                    │
+│  ┌──────────────┐                  ┌──────────────┐            │
+│  │ API Endpoints│                  │  CloudWatch  │            │
+│  │ • /chat      │                  │    Logs      │            │
+│  │ • /mandates  │                  └──────────────┘            │
+│  │ • /products  │                                               │
+│  │ • /payments  │                                               │
+│  └──────┬───────┘                                               │
+│         │                                                        │
+└─────────┼────────────────────────────────────────────────────────┘
+          │
+          ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ APPLICATION CORE (Inside Container)                             │
+│                                                                  │
+│  SessionManager → Stores conversation history                   │
+│         ↓                                                        │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │ AGENT ORCHESTRATION (Strands SDK)                       │   │
+│  │                                                          │   │
+│  │          ┌─────────────────┐                            │   │
+│  │          │ Supervisor Agent│ ← AWS Bedrock Claude 4.5   │   │
+│  │          └────────┬────────┘                            │   │
+│  │                   │                                      │   │
+│  │      ┌────────────┴────────────┐                        │   │
+│  │      ▼                         ▼                        │   │
+│  │  ┌─────────┐            ┌─────────────┐                │   │
+│  │  │HP Agent │            │ HNP Delegate│                │   │
+│  │  │Shopping │            │   Agent     │                │   │
+│  │  └────┬────┘            └──────┬──────┘                │   │
+│  │       │                        │                        │   │
+│  │       └────────┬───────────────┘                        │   │
+│  │                ▼                                        │   │
+│  │       ┌─────────────────┐                              │   │
+│  │       │  Payment Agent  │ (AP2 Compliant)              │   │
+│  │       │ Domain-Agnostic │                              │   │
+│  │       └────────┬────────┘                              │   │
+│  └────────────────┼─────────────────────────────────────┘   │
+│                   │                                          │
+│                   ▼                                          │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ SERVICE LAYER                                        │   │
+│  │ • mandate_service    • signature_service             │   │
+│  │ • monitoring_service • transaction_service           │   │
+│  │ • sse_service        • bedrock_service               │   │
+│  └────┬─────────────────────────────────────────────────┘   │
+│       │                                                      │
+│       ├──────────────┬───────────────┬─────────────┐        │
+│       ▼              ▼               ▼             ▼        │
+│  ┌────────┐   ┌───────────┐   ┌─────────┐   ┌─────────┐   │
+│  │APSched │   │Mock Integ.│   │  SQLite │   │   SSE   │   │
+│  │Monitoring│  │• merchant │   │Database │   │ Events  │   │
+│  │(60s loop)│  │• payment  │   │• mandates│  └─────────┘   │
+│  └────────┘   │• creds    │   │• txns    │                 │
+│               └───────────┘   └─────────┘                  │
+└─────────────────────────────────────────────────────────────┘
+                   │
+                   │ API Calls
+                   ▼
+         ┌──────────────────┐
+         │  AWS BEDROCK API │
+         │ Claude Sonnet 4.5│
+         └──────────────────┘
+```
 
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                       FASTAPI APPLICATION (Backend)                              │
-│  ┌──────────────────────────────────────────────────────────────────────────┐  │
-│  │  API Layer (/api)                                                         │  │
-│  │  ├─ /chat/stream (SSE) ──────────────┐                                   │  │
-│  │  ├─ /mandates/sign                   │                                   │  │
-│  │  ├─ /products/search                 │                                   │  │
-│  │  ├─ /payment-methods                 │                                   │  │
-│  │  ├─ /transactions                    │                                   │  │
-│  │  └─ /monitoring/status               │                                   │  │
-│  └─────────────────┬────────────────────┼───────────────────────────────────┘  │
-│                    │                    │                                       │
-│  ┌─────────────────▼────────────────────▼───────────────────────────────────┐  │
-│  │  Session & Context Management                                            │  │
-│  │  └─ SessionManager (conversation history + state)                        │  │
-│  └─────────────────┬──────────────────────────────────────────────────────┘  │
-│                    │                                                            │
-│  ┌─────────────────▼─────────────────────────────────────────────────────────┐│
-│  │  AWS BEDROCK AGENT STRANDS ORCHESTRATION                                  ││
-│  │  ┌──────────────────────────────────────────────────────────────────────┐││
-│  │  │  Supervisor Agent (Entry Point)                                      │││
-│  │  │  ├─ LLM-based intelligent routing                                    │││
-│  │  │  ├─ Claude Sonnet 4.5 (AWS Bedrock)                                  │││
-│  │  │  └─ Uses agents as @tool-decorated functions                         │││
-│  │  └──────────┬──────────────────────────┬────────────────────────────────┘││
-│  │             │                          │                                  ││
-│  │   ┌─────────▼──────────┐    ┌─────────▼──────────────────┐              ││
-│  │   │ HP Shopping Agent  │    │ HNP Delegate Agent         │              ││
-│  │   │ (Immediate Buy)    │    │ (Autonomous Monitoring)     │              ││
-│  │   │                    │    │                             │              ││
-│  │   │ Tools:             │    │ Tools:                      │              ││
-│  │   │ ┌────────────────┐ │    │ ┌─────────────────────────┐│              ││
-│  │   │ │search_products │ │    │ │extract_constraints      ││              ││
-│  │   │ │create_cart     │ │    │ │search_products          ││              ││
-│  │   │ │request_sig     │ │    │ │create_hnp_intent        ││              ││
-│  │   │ │get_signed_cart │ │    │ │request_intent_sig       ││              ││
-│  │   │ │invoke_payment  │─┼────┼─│activate_monitoring_job  ││              ││
-│  │   │ └────────────────┘ │    │ └─────────────────────────┘│              ││
-│  │   └────────────────────┘    └────────┬───────────────────┘              ││
-│  │                                       │                                   ││
-│  │   ┌───────────────────────────────────▼───────────────────────────────┐ ││
-│  │   │ Payment Agent (Domain-Independent)                                 │ ││
-│  │   │                                                                     │ ││
-│  │   │ Tools (Sequential Executor):                                       │ ││
-│  │   │ ┌────────────────────────────────────────────────────────────────┐│ ││
-│  │   │ │ 1. validate_hp_chain / validate_hnp_chain                      ││ ││
-│  │   │ │ 2. retrieve_payment_credentials                                ││ ││
-│  │   │ │ 3. process_payment_authorization                               ││ ││
-│  │   │ └────────────────────────────────────────────────────────────────┘│ ││
-│  │   │                                                                     │ ││
-│  │   │ AP2 Compliance: Zero knowledge of products/merchants               │ ││
-│  │   └─────────────────────────────────────────────────────────────────────┘ ││
-│  └──────────────────────────────────────────────────────────────────────────┘│
-│                                                                                │
-│  ┌──────────────────────────────────────────────────────────────────────────┐│
-│  │  Service Layer                                                            ││
-│  │  ├─ mandate_service (Intent/Cart/Payment mandate creation)               ││
-│  │  ├─ signature_service (HMAC-SHA256 signing per AP2 spec)                 ││
-│  │  ├─ monitoring_service (APScheduler background jobs)                     ││
-│  │  ├─ transaction_service (Purchase record linkage)                        ││
-│  │  ├─ sse_service (Server-Sent Events for real-time updates)               ││
-│  │  └─ bedrock_service (AWS Bedrock Claude invocation)                      ││
-│  └──────────────────────────────────────────────────────────────────────────┘│
-│                                                                                │
-│  ┌──────────────────────────────────────────────────────────────────────────┐│
-│  │  Background Processing (APScheduler)                                      ││
-│  │  ┌──────────────────────────────────────────────────────────────────────┐││
-│  │  │ Monitoring Loop (every 10s demo / 5min prod)                         │││
-│  │  │ ├─ Check product price & availability                                │││
-│  │  │ ├─ Emit SSE monitoring events                                        │││
-│  │  │ ├─ When conditions met:                                              │││
-│  │  │ │  ├─ Create Cart Mandate (agent-signed)                             │││
-│  │  │ │  ├─ Invoke Payment Agent                                           │││
-│  │  │ │  └─ Create Transaction                                             │││
-│  │  │ └─ Handle expiration (7 days)                                        │││
-│  │  └──────────────────────────────────────────────────────────────────────┘││
-│  └──────────────────────────────────────────────────────────────────────────┘│
-│                                                                                │
-│  ┌──────────────────────────────────────────────────────────────────────────┐│
-│  │  Mock Integrations (Demo)                                                 ││
-│  │  ├─ credentials_provider (tokenized payment methods)                     ││
-│  │  ├─ payment_processor (~90% approval rate simulator)                     ││
-│  │  └─ merchant_api (product catalog ~15 items)                             ││
-│  └──────────────────────────────────────────────────────────────────────────┘│
-└────────────────────────┬───────────────────────────────────────────────────────┘
-                         │
-┌────────────────────────▼───────────────────────────────────────────────────────┐
-│                       DATABASE LAYER (SQLite + SQLAlchemy)                      │
-│  ┌──────────────────────────────────────────────────────────────────────────┐  │
-│  │  mandates                                                                 │  │
-│  │  ├─ AP2 Protocol audit trail                                             │  │
-│  │  ├─ Types: intent, cart, payment                                         │  │
-│  │  └─ Stores: mandate_data, signatures, validation_status                  │  │
-│  └──────────────────────────────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────────────────────────────┐  │
-│  │  monitoring_jobs                                                          │  │
-│  │  ├─ Active background monitoring state                                   │  │
-│  │  └─ Links to intent_mandate_id, constraints, expiration                  │  │
-│  └──────────────────────────────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────────────────────────────┐  │
-│  │  transactions                                                             │  │
-│  │  ├─ Purchase outcomes                                                     │  │
-│  │  └─ Links: intent + cart + payment mandates                              │  │
-│  └──────────────────────────────────────────────────────────────────────────┘  │
-│  ┌──────────────────────────────────────────────────────────────────────────┐  │
-│  │  sessions                                                                 │  │
-│  │  └─ Conversation continuity + flow context                               │  │
-│  └──────────────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────────────┘
+### Agent Flow Detail
 
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         AWS BEDROCK (External Service)                           │
-│  ┌──────────────────────────────────────────────────────────────────────────┐  │
-│  │  Claude Sonnet 4.5                                                        │  │
-│  │  └─ Model: global.anthropic.claude-sonnet-4-5-20250929-v1:0              │  │
-│  └──────────────────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────────────┘
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ SUPERVISOR AGENT (Entry Point)                                   │
+│ • Receives user message + session context                        │
+│ • LLM decides: HP (buy now) or HNP (monitor & buy later)         │
+│ • Uses agents as @tool-decorated functions                       │
+│                                                                   │
+│ Tools:                                                            │
+│ • shopping_assistant() → Calls HP Shopping Agent                 │
+│ • monitoring_assistant() → Calls HNP Delegate Agent              │
+└─────────┬────────────────────────────────────┬───────────────────┘
+          │                                     │
+          ▼                                     ▼
+┌───────────────────────────────┐    ┌─────────────────────────────────┐
+│ HP SHOPPING AGENT             │    │ HNP DELEGATE AGENT              │
+│ (Immediate Purchase)          │    │ (Autonomous Monitoring)         │
+├───────────────────────────────┤    ├─────────────────────────────────┤
+│ Tools:                        │    │ Tools:                          │
+│ • search_products()           │    │ • extract_monitoring_constraints│
+│ • create_shopping_cart()      │    │ • search_products()             │
+│ • request_user_cart_signature │──┐ │ • create_hnp_intent()           │
+│ • get_signed_cart_mandate()   │  │ │ • request_user_intent_signature │
+│ • invoke_payment_processing() │──┼─│ • get_signed_intent_mandate()   │
+└───────────────────────────────┘  │ │ • activate_monitoring_job()     │
+                                   │ └─────────────────┬───────────────┘
+                                   │                   │
+                                   │                   │ (background job)
+                                   │                   │
+                                   │                   ▼
+                                   │   ┌─────────────────────────────────┐
+                                   │   │ MONITORING JOB (APScheduler)    │
+                                   │   │ • check_monitoring_conditions() │
+                                   │   │ • Checks price every 60s        │
+                                   │   │ • When conditions met:          │
+                                   │   │   - Creates Cart (agent-signed) │
+                                   │   │   - Invokes Payment Agent ──────┼──┐
+                                   │   └─────────────────────────────────┘  │
+                                   │                                        │
+                                   ▼                                        │
+                          ┌────────────────────────────────────────────────┘
+                          │
+                          ▼
+               ┌──────────────────────────────┐
+               │ PAYMENT AGENT                │
+               │ (Domain-Independent AP2)     │
+               ├──────────────────────────────┤
+               │ Sequential Tools:            │
+               │ • validate_hp_chain()        │
+               │   OR validate_hnp_chain()    │
+               │ • retrieve_payment_credentials│
+               │ • process_payment_authorization│
+               └──────────────────────────────┘
+```
+
+### Key Request Flows
+
+**1. HP Purchase Flow**
+```
+User → /chat/stream → Supervisor Agent
+   → shopping_assistant() → HP Shopping Agent
+   → search_products(query, max_price) → Returns product list
+   → create_shopping_cart(product_id) → Creates Intent + Cart mandates
+   → request_user_cart_signature(cart_mandate_id) → SSE: signature_requested
+   → User signs via POST /mandates/sign
+   → get_signed_cart_mandate(cart_mandate_id) → Retrieves signed cart
+   → invoke_payment_processing(cart_mandate_id) → Payment Agent
+      → validate_hp_chain() → retrieve_payment_credentials()
+      → process_payment_authorization() → Creates Payment Mandate
+   → Transaction created → SSE: purchase_complete
+```
+
+**2. HNP Monitoring Flow**
+```
+User → /chat/stream → Supervisor Agent
+   → monitoring_assistant() → HNP Delegate Agent
+   → extract_monitoring_constraints(user_message) → {max_price, max_delivery}
+   → search_products(query, max_price) → Returns matching products
+   → create_hnp_intent(constraints, product_query) → Creates Intent mandate
+   → request_user_intent_signature(intent_mandate_id) → SSE: signature_requested
+   → User signs via POST /mandates/sign
+   → get_signed_intent_mandate(intent_mandate_id) → Retrieves signed intent
+   → activate_monitoring_job(intent_mandate_id) → APScheduler job registered
+
+Background Loop (60s via APScheduler):
+   → check_monitoring_conditions() → Checks price & availability
+   → Conditions met? → Agent creates Cart mandate (agent-signed)
+   → invoke_payment_processing() → Payment Agent
+      → validate_hnp_chain() → retrieve_payment_credentials()
+      → process_payment_authorization() → Creates Payment Mandate
+   → Transaction created → SSE: autonomous_purchase_complete
+```
+
+**3. Signature Request**
+```
+Agent Tool → SSE Service → Browser SignatureModal
+   → User confirms → POST /mandates/sign → Signature added → DB
+```
+
+**4. LLM Invocation**
+```
+Agent → bedrock_service.invoke_claude()
+   → AWS Bedrock API → Claude Sonnet 4.5 → Response
 ```
 
 ---
@@ -277,11 +315,11 @@
 - **Code Quality**: black, mypy, ruff
 
 ### AWS Services (Infrastructure)
-- **Amazon Bedrock**: Claude model inference
+- **AWS Amplify**: Frontend hosting with auto-deploy from GitHub (main branch)
+- **Amazon Bedrock**: Claude model inference (Claude Sonnet 4.5)
 - **EC2 Container Registry (ECR)**: Docker image hosting
 - **ECS Fargate**: Containerized backend deployment
-- **Application Load Balancer (ALB)**: HTTP routing
-- **CloudFront**: CDN and HTTPS termination (optional)
+- **Application Load Balancer (ALB)**: HTTP routing and health checks
 - **CloudWatch**: Logging and monitoring
 - **VPC**: Network isolation
 
@@ -740,15 +778,9 @@ cd backend
 python -m uvicorn src.main:app --reload
 ```
 
-### Production (ECS Fargate)
-```bash
-./deploy-ecs.sh  # Builds Docker image, pushes to ECR, updates ECS service
-```
-
 ### Configuration
 - `/infrastructure/config.sh`: AWS credentials, VPC, subnet, ALB configuration
-- `ecs-task-definition.json`: Container specs, environment variables, health checks
-- `.env`: Demo secrets (changed before production)
+- `.env`: Local configuration
 
 ### Monitoring
 - CloudWatch logs at `/ecs/ghostcart-backend`

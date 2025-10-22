@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# GhostCart ECS Fargate Deployment Script
+# Strands AP2 Payment Agent ECS Fargate Deployment Script
 # Deploys backend to ECS with Application Load Balancer
 
 set -e

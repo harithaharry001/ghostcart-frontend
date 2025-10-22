@@ -1,5 +1,5 @@
 """
-GhostCart Configuration Module
+Strands AP2 Payment Agent Configuration Module
 
 Loads environment variables for backend configuration following AP2 protocol requirements.
 """

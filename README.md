@@ -1,15 +1,15 @@
-# GhostCart - AP2 Protocol Demonstration
+# Strands AP2 Payment Agent - AP2 Protocol Demonstration
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![React 18](https://img.shields.io/badge/react-18.2-blue.svg)](https://reactjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com/)
 
-**GhostCart** is a full-stack demonstration of the [Agent Payments Protocol (AP2) v0.1](https://ap2-protocol.org/specification/), showcasing mandate-based payments with intelligent AI agent orchestration using AWS Bedrock and Strands SDK.
+**Strands AP2 Payment Agent** is a full-stack demonstration of the [Agent Payments Protocol (AP2) v0.1](https://ap2-protocol.org/specification/), showcasing mandate-based payments with intelligent AI agent orchestration using AWS Bedrock and Strands SDK.
 
-## 🎯 What is GhostCart?
+## 🎯 What is Strands AP2 Payment Agent?
 
-GhostCart proves that AP2 achieves true interoperability by implementing the protocol with AWS Strands SDK (not just Google's reference implementation). It demonstrates two revolutionary purchase flows with intelligent multi-agent orchestration:
+Strands AP2 Payment Agent proves that AP2 achieves true interoperability by implementing the protocol with AWS Strands SDK (not just Google's reference implementation). It demonstrates two revolutionary purchase flows with intelligent multi-agent orchestration:
 
 ### 🛒 Human-Present (HP) Flow
 Traditional e-commerce enhanced with AI: users search for products through natural conversation with the AI shopping assistant, review results in real-time, and approve purchases with biometric-style signatures. Every authorization is cryptographically signed and validated, creating a complete audit trail showing exactly how the purchase was authorized through the mandate chain (Intent → Cart → Payment → Transaction).
@@ -203,7 +203,7 @@ User: "Buy AirPods if price drops below $180 and delivery is 2 days or less"
 ### Infrastructure
 - **Container Orchestration**: AWS ECS Fargate (serverless containers)
 - **Load Balancing**: Application Load Balancer (ALB) with health checks
-- **CDN**: CloudFront (optional) for HTTPS, global distribution, and DDoS protection
+- **CDN**: CloudFront for HTTPS, global distribution, and DDoS protection
 - **Container Registry**: Amazon ECR for Docker images
 - **Logging**: CloudWatch Logs with structured logging
 - **Networking**: VPC with public/private subnets, Security Groups
@@ -211,7 +211,7 @@ User: "Buy AirPods if price drops below $180 and delivery is 2 days or less"
 
 ## 🔐 AP2 Protocol Implementation
 
-GhostCart implements the complete AP2 v0.1 specification with full mandate chain validation:
+Strands AP2 Payment Agent implements the complete AP2 v0.1 specification with full mandate chain validation:
 
 ### Mandate Types (All stored in database)
 - **Intent Mandate**: Captures user's original request with constraints
@@ -258,7 +258,7 @@ GhostCart implements the complete AP2 v0.1 specification with full mandate chain
 
 ## 🏗️ Multi-Agent Architecture
 
-GhostCart implements a sophisticated multi-agent system using the Strands SDK:
+Strands AP2 Payment Agent implements a sophisticated multi-agent system using the Strands SDK:
 
 ### Agent Hierarchy (backend/src/agents/)
 

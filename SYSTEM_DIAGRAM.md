@@ -1,6 +1,6 @@
-# GhostCart System Components Diagram
+# Strands AP2 Payment Agent System Components Diagram
 
-Visual representation of the GhostCart AP2 Protocol demonstration system.
+System diagram of the Strands AP2 Payment Agent implementing the AP2 protocol.
 
 ## High-Level Architecture
 
@@ -26,7 +26,7 @@ Visual representation of the GhostCart AP2 Protocol demonstration system.
 │  └──────────────┬─────────────────────────────────────┘     │
 │                 │                                            │
 │  ┌──────────────▼─────────────────────────────────────┐     │
-│  │  ECS Fargate (1 vCPU, 2GB RAM)                      │     │
+│  │  ECS Fargate                                 │     │
 │  │  ┌──────────────────────────────────────────────┐  │     │
 │  │  │  Docker Container                             │  │     │
 │  │  │  • Frontend Static Files                      │  │     │
@@ -47,7 +47,7 @@ Visual representation of the GhostCart AP2 Protocol demonstration system.
 │  │  AGENT ORCHESTRATION (AWS Strands)                  │     │
 │  │  ┌──────────────────────────────────────────────┐  │     │
 │  │  │  Supervisor Agent                             │  │     │
-│  │  │  (Claude Sonnet 4 via Bedrock)                │  │     │
+│  │  │  (Claude Sonnet 4.5 via Bedrock)                │  │     │
 │  │  └────┬──────────────────┬──────────────────────┘  │     │
 │  │       │                  │                          │     │
 │  │  ┌────▼────────┐  ┌─────▼──────────────┐          │     │
@@ -178,7 +178,7 @@ Intent (user-signed) → Cart (agent-signed) → Payment (HNP flag) → Transact
 - **CloudWatch** - Logging & monitoring
 
 ### AI/ML
-- **AWS Bedrock** - Claude Sonnet 4 model
+- **AWS Bedrock** - Claude Sonnet 4.5 model
 - **Strands Agents** - Multi-agent orchestration
 - **LLM Routing** - Intelligent request routing
 
@@ -188,7 +188,7 @@ Intent (user-signed) → Cart (agent-signed) → Payment (HNP flag) → Transact
 |-------|-------------|
 | Frontend | React 18, Vite, Tailwind CSS, SSE |
 | Backend | FastAPI, Python 3.11, async/await |
-| AI | AWS Bedrock, Claude Sonnet 4, Strands SDK |
+| AI | AWS Bedrock, Claude Sonnet 4.5, Strands SDK |
 | Database | SQLite, SQLAlchemy, aiosqlite |
 | Scheduling | APScheduler |
 | Infrastructure | ECS Fargate, ALB, ECR, CloudWatch |
@@ -204,4 +204,4 @@ Intent (user-signed) → Cart (agent-signed) → Payment (HNP flag) → Transact
 
 ---
 
-**GhostCart** - Demonstrating the future of AI-powered autonomous payments with AP2 Protocol
+**Strands AP2 Payment Agent** - Demonstrating the future of AI-powered autonomous payments with AP2 Protocol

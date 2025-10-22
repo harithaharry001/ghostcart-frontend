@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# GhostCart Amplify Deployment Script
+# Strands AP2 Payment Agent Amplify Deployment Script
 # Deploys frontend to AWS Amplify
 
 set -e
