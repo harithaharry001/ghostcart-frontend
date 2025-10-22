@@ -187,6 +187,80 @@ else
     echo -e "${GREEN}✓ ecsTaskExecutionRole exists${NC}"
 fi
 
+# Create ECS Task Role with Bedrock permissions
+echo -e "\n${YELLOW}Setting up ECS Task Role with Bedrock permissions...${NC}"
+
+# Create Bedrock policy if it doesn't exist
+BEDROCK_POLICY_NAME="GhostCartBedrockPolicy"
+BEDROCK_POLICY_ARN=$(aws iam list-policies \
+    --scope Local \
+    --query "Policies[?PolicyName=='$BEDROCK_POLICY_NAME'].Arn" \
+    --output text 2>/dev/null || echo "")
+
+if [ -z "$BEDROCK_POLICY_ARN" ]; then
+    echo "Creating Bedrock IAM policy..."
+    cat > /tmp/bedrock-policy.json << 'POLICY_EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
+      "Resource": [
+        "arn:aws:bedrock:*::foundation-model/*",
+        "arn:aws:bedrock:*:*:inference-profile/*"
+      ]
+    }
+  ]
+}
+POLICY_EOF
+
+    BEDROCK_POLICY_ARN=$(aws iam create-policy \
+        --policy-name $BEDROCK_POLICY_NAME \
+        --policy-document file:///tmp/bedrock-policy.json \
+        --description "Allows ECS tasks to invoke AWS Bedrock models" \
+        --query 'Policy.Arn' \
+        --output text)
+    
+    rm /tmp/bedrock-policy.json
+    echo -e "${GREEN}✓ Bedrock policy created: $BEDROCK_POLICY_ARN${NC}"
+else
+    echo -e "${GREEN}✓ Bedrock policy exists: $BEDROCK_POLICY_ARN${NC}"
+fi
+
+# Create task role if it doesn't exist
+TASK_ROLE_NAME="ghostcart-ecs-task-role"
+if ! aws iam get-role --role-name $TASK_ROLE_NAME &>/dev/null; then
+    echo "Creating ECS task role..."
+    aws iam create-role \
+        --role-name $TASK_ROLE_NAME \
+        --assume-role-policy-document '{
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": {"Service": "ecs-tasks.amazonaws.com"},
+            "Action": "sts:AssumeRole"
+          }]
+        }' \
+        --description "Task role for GhostCart ECS tasks to access AWS services"
+    
+    echo -e "${GREEN}✓ Task role created${NC}"
+else
+    echo -e "${GREEN}✓ Task role exists${NC}"
+fi
+
+# Attach Bedrock policy to task role
+aws iam attach-role-policy \
+    --role-name $TASK_ROLE_NAME \
+    --policy-arn $BEDROCK_POLICY_ARN 2>/dev/null || echo "Policy already attached"
+
+echo -e "${GREEN}✓ Bedrock permissions configured for ECS tasks${NC}"
+
+TASK_ROLE_ARN="arn:aws:iam::$AWS_ACCOUNT_ID:role/$TASK_ROLE_NAME"
+
 # Create ECS Service
 echo -e "\n${YELLOW}Creating ECS service...${NC}"
 if ! aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME --region $AWS_REGION --query 'services[0].status' --output text 2>/dev/null | grep -q ACTIVE; then
@@ -230,9 +304,11 @@ export ALB_SG_ID="$ALB_SG_ID"
 export ECS_SG_ID="$ECS_SG_ID"
 export CLUSTER_NAME="$CLUSTER_NAME"
 export SERVICE_NAME="$SERVICE_NAME"
+export TASK_FAMILY="ghostcart-backend"
 export ALB_ARN="$ALB_ARN"
 export ALB_DNS="$ALB_DNS"
 export TG_ARN="$TG_ARN"
+export TASK_ROLE_ARN="$TASK_ROLE_ARN"
 EOF
 
 echo -e "${GREEN}✓ Configuration saved to infrastructure/config.sh${NC}"

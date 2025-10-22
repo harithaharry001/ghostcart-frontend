@@ -72,7 +72,7 @@ export default function MonitoringStatusCard({ job, onCancel, onViewChain }) {
     const interval = setInterval(() => {
       updateCountdown();
       updateLastCheck();
-    }, 1000); // Update every second for smooth countdown
+    }, 30000); // Update every thirty second for smooth countdown
 
     return () => clearInterval(interval);
   }, [job.expires_at, job.last_check_at]);

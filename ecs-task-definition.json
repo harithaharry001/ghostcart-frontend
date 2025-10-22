@@ -5,7 +5,7 @@
   "cpu": "1024",
   "memory": "2048",
   "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
-  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/GhostCartAppRunnerRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ghostcart-ecs-task-role",
   "containerDefinitions": [
     {
       "name": "ghostcart-backend",
@@ -72,7 +72,7 @@
         "interval": 30,
         "timeout": 5,
         "retries": 3,
-        "startPeriod": 60
+        "startPeriod": 120
       }
     }
   ]
