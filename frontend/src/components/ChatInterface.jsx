@@ -17,7 +17,7 @@ import MandateChainViz from './MandateChainViz';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
-export default function ChatInterface() {
+export default function ChatInterface({ onPaymentComplete, onAutonomousPurchaseComplete }) {
   const { sessionId, setSessionId, userId, flowType, setFlowType } = useSession();
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
@@ -44,6 +44,9 @@ export default function ChatInterface() {
 
   // Monitoring Status State (for real-time status card updates)
   const [monitoringStatus, setMonitoringStatus] = useState(null);
+
+  // Track if payment was initiated in current conversation (for HP flow refresh)
+  const paymentInitiatedRef = useRef(false);
 
   /**
    * Auto-scroll to bottom when new messages arrive
@@ -235,6 +238,8 @@ export default function ChatInterface() {
         } else {
           setMandateFlow('hp');
           // pendingCartData already set from cart_created event
+          // Mark that payment is being initiated (HP flow)
+          paymentInitiatedRef.current = true;
         }
 
         setMandateConstraints(data.constraints || null);
@@ -341,6 +346,12 @@ export default function ChatInterface() {
           data: data,  // Pass for "View Chain" button
           timestamp: new Date()
         });
+
+        // Trigger order refresh AND monitoring jobs refresh for HNP payment completion
+        if (onAutonomousPurchaseComplete) {
+          console.log('Autonomous purchase complete - triggering orders and monitoring refresh');
+          onAutonomousPurchaseComplete();
+        }
       });
 
       // Handle autonomous purchase failed
@@ -353,6 +364,28 @@ export default function ChatInterface() {
           content: `❌ Autonomous purchase failed: ${data.error || data.message}`,
           timestamp: new Date()
         });
+      });
+
+      // Handle HP purchase complete
+      eventSource.addEventListener('hp_purchase_complete', (e) => {
+        const data = JSON.parse(e.data);
+        console.log('HP purchase complete:', data);
+
+        addMessage({
+          type: 'success',
+          content: `✅ Purchase Complete!\n\n${data.product_name} purchased for $${(data.amount_cents / 100).toFixed(2)}\nTransaction ID: ${data.transaction_id}\nAuthorization: ${data.authorization_code}`,
+          data: data,  // Pass for "View Chain" button
+          timestamp: new Date()
+        });
+
+        // Trigger order refresh for HP payment completion
+        if (onPaymentComplete) {
+          console.log('HP purchase complete - triggering order refresh via SSE event');
+          onPaymentComplete();
+        }
+
+        // Reset payment initiated flag since we got explicit completion event
+        paymentInitiatedRef.current = false;
       });
 
       // Handle complete response
@@ -383,6 +416,14 @@ export default function ChatInterface() {
           setFlowType(data.flow_type);
         }
 
+        // Fallback: Trigger order refresh if HP payment was initiated but no SSE event received
+        // (This shouldn't happen now that we emit hp_purchase_complete event, but kept as safety net)
+        if (paymentInitiatedRef.current && onPaymentComplete) {
+          console.log('HP payment completed (fallback) - triggering order refresh');
+          onPaymentComplete();
+          paymentInitiatedRef.current = false; // Reset for next conversation
+        }
+
         // Close connection
         eventSource.close();
         setIsStreaming(false);
@@ -406,6 +447,9 @@ export default function ChatInterface() {
           timestamp: new Date()
         });
 
+        // Reset payment flag on error
+        paymentInitiatedRef.current = false;
+
         eventSource.close();
         setIsStreaming(false);
         setCurrentStreamingMessage('');
@@ -422,6 +466,9 @@ export default function ChatInterface() {
           timestamp: new Date()
         });
 
+        // Reset payment flag on connection error
+        paymentInitiatedRef.current = false;
+
         eventSource.close();
         setIsStreaming(false);
         setCurrentStreamingMessage('');
@@ -435,6 +482,8 @@ export default function ChatInterface() {
         content: `Error: ${error.message}`,
         timestamp: new Date()
       });
+      // Reset payment flag on error
+      paymentInitiatedRef.current = false;
       setIsSending(false);
       setIsStreaming(false);
     }

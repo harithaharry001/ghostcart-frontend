@@ -20,26 +20,25 @@ chmod +x deploy-ecs.sh
 
 Builds Docker image, pushes to ECR, updates ECS service
 
-### 3. Configure HTTPS (Optional)
+### 3. Configure HTTPS with CloudFront (Optional)
 ```bash
-chmod +x infrastructure/configure-https-route53.sh
-./infrastructure/configure-https-route53.sh
+chmod +x infrastructure/configure-cloudfront.sh
+./infrastructure/configure-cloudfront.sh
 ```
 
 ## Architecture
 
 ```
-Internet → Route 53 (optional) → ALB → ECS Fargate → CloudWatch
+Internet → CloudFront (optional) → ALB → ECS Fargate → CloudWatch
 ```
 
 ## Components
 
 - **ECS Fargate**: Serverless container hosting (1 vCPU, 2GB RAM)
-- **Application Load Balancer**: HTTP/HTTPS routing with health checks
+- **Application Load Balancer**: HTTP routing with health checks
+- **CloudFront**: CDN and HTTPS termination (optional)
 - **ECR**: Docker image registry
 - **CloudWatch**: Logging and monitoring
-- **Route 53**: DNS management (optional)
-- **ACM**: SSL certificates (optional)
 
 ## Configuration
 
@@ -70,20 +69,11 @@ aws elbv2 describe-target-health --target-group-arn $TG_ARN
 aws ecs update-service --cluster ghostcart-cluster --service ghostcart-backend-service --desired-count 2
 ```
 
-## Cost Estimate
-
-~$65-70/month:
-- ECS Fargate: ~$30
-- ALB: ~$20
-- Data Transfer: ~$10
-- CloudWatch: ~$5
-- ECR: ~$1
-
 ## Troubleshooting
 
 **Task fails to start**: Check CloudWatch logs, verify IAM permissions
 **Health check fails**: Verify /api/health endpoint, check security groups
-**Cannot access**: Check ALB DNS, security groups, Route 53 records
+**Cannot access**: Check ALB DNS, security groups, CloudFront distribution (if configured)
 
 ## Cleanup
 

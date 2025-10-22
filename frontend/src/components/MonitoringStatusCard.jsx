@@ -66,15 +66,9 @@ export default function MonitoringStatusCard({ job, onCancel, onViewChain }) {
       }
     };
 
+    // Update once when component mounts or job data changes
     updateCountdown();
     updateLastCheck();
-
-    const interval = setInterval(() => {
-      updateCountdown();
-      updateLastCheck();
-    }, 60000); // Update every thirty second for smooth countdown
-
-    return () => clearInterval(interval);
   }, [job.expires_at, job.last_check_at]);
 
   const handleCancel = async () => {

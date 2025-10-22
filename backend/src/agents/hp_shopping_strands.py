@@ -338,6 +338,25 @@ def create_hp_shopping_agent(
                 )
                 transaction_id = transaction.transaction_id
                 logger.info(f"💾 HP Transaction created: {transaction_id}")
+
+                # Emit SSE event for HP purchase completion
+                logger.info(f"🔍 Checking sse_emit_fn: {sse_emit_fn is not None}")
+                if sse_emit_fn:
+                    # Get product name from cart items
+                    cart_items = cart_dict.get("items", [])
+                    product_name = cart_items[0].get("product_name", "Product") if cart_items else "Product"
+
+                    sse_emit_fn("hp_purchase_complete", {
+                        "transaction_id": transaction_id,
+                        "product_name": product_name,
+                        "amount_cents": amount_cents,
+                        "authorization_code": auth_code or "N/A",
+                        "status": status,
+                        "cart_mandate_id": cart_dict.get("mandate_id"),
+                        "payment_mandate_id": payment_mandate.get("mandate_id"),
+                        "message": "HP purchase completed successfully"
+                    })
+                    logger.info(f"📤 Emitted hp_purchase_complete SSE event for transaction {transaction_id}")
             else:
                 logger.warning("No db_session provided - transaction record not created")
 

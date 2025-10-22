@@ -2,7 +2,7 @@
  * Home Page - AWS-Inspired Professional Theme
  * Main interface orchestrating HP flow
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ChatInterface from '../components/ChatInterface';
 import MonitoringStatusCard from '../components/MonitoringStatusCard';
 import NotificationBanner from '../components/NotificationBanner';
@@ -14,6 +14,12 @@ import { api } from '../services/api';
 export default function Home() {
   const { sessionId, userId, updateState } = useSession();
 
+  // Ref to hold OrdersSection refresh function
+  const ordersRefreshRef = useRef(null);
+
+  // Ref to hold monitoring jobs refresh function
+  const monitoringRefreshRef = useRef(null);
+
   // HNP Flow State
   const [monitoringJobs, setMonitoringJobs] = useState([]);
   const [notifications, setNotifications] = useState([]);
@@ -22,14 +28,42 @@ export default function Home() {
   const [viewingMandate, setViewingMandate] = useState(null);
 
   /**
+   * Handle payment completion from ChatInterface SSE events
+   */
+  const handlePaymentComplete = React.useCallback(() => {
+    console.log('Payment completed - refreshing orders...');
+    if (ordersRefreshRef.current) {
+      ordersRefreshRef.current();
+    }
+  }, []);
+
+  /**
+   * Handle autonomous purchase completion - refresh both orders and monitoring jobs
+   */
+  const handleAutonomousPurchaseComplete = React.useCallback(() => {
+    console.log('Autonomous purchase completed - refreshing orders and monitoring jobs...');
+    if (ordersRefreshRef.current) {
+      ordersRefreshRef.current();
+    }
+    if (monitoringRefreshRef.current) {
+      monitoringRefreshRef.current();
+    }
+  }, []);
+
+  /**
    * Fetch monitoring jobs (wrapped in useCallback to avoid dependency issues)
    */
+  const [refreshingJobs, setRefreshingJobs] = useState(false);
+  
   const fetchMonitoringJobs = React.useCallback(async () => {
     try {
+      setRefreshingJobs(true);
       const response = await api.get(`/monitoring/jobs?user_id=${userId}&active_only=true`);
       setMonitoringJobs(response.jobs || []);
     } catch (error) {
       console.error('Failed to fetch monitoring jobs:', error);
+    } finally {
+      setRefreshingJobs(false);
     }
   }, [userId]);
 
@@ -46,21 +80,29 @@ export default function Home() {
   };
 
   /**
-   * Load monitoring jobs on mount and poll for updates
+   * Load monitoring jobs on mount
    */
   useEffect(() => {
     if (!userId) return;
-
-    // Initial fetch
     fetchMonitoringJobs();
-
-    // Poll every 5 seconds for updates
-    const pollInterval = setInterval(() => {
-      fetchMonitoringJobs();
-    }, 5000);
-
-    return () => clearInterval(pollInterval);
   }, [userId, fetchMonitoringJobs]);
+
+  /**
+   * Expose fetchMonitoringJobs to ChatInterface via ref
+   */
+  useEffect(() => {
+    monitoringRefreshRef.current = fetchMonitoringJobs;
+  }, [fetchMonitoringJobs]);
+
+  /**
+   * Note: SSE events like 'autonomous_purchase_complete' are emitted through
+   * the ChatInterface's /api/chat/stream connection. The chat stream handles
+   * these events and the UI updates when the user refreshes monitoring jobs.
+   * 
+   * For automatic updates, we rely on the user clicking the "Refresh Status" button
+   * after receiving chat notifications about purchase completion.
+   */
+
 
   return (
     <div className="min-h-screen bg-neutral-50">
@@ -142,13 +184,55 @@ export default function Home() {
                 </div>
               </div>
               <div className="flex-1 min-h-0">
-                <ChatInterface />
+                <ChatInterface
+                  onPaymentComplete={handlePaymentComplete}
+                  onAutonomousPurchaseComplete={handleAutonomousPurchaseComplete}
+                />
               </div>
             </div>
           </div>
 
           {/* Right: Monitoring Jobs (HNP flow) */}
           <div className="space-y-6 animate-slide-up" style={{ animationDelay: '0.2s' }}>
+            {/* Info Banner - Always show with refresh button */}
+            <div className="modern-card p-4 bg-primary/5 border-primary/20">
+              <div className="flex items-start gap-3">
+                <svg className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-secondary mb-1">
+                    {monitoringJobs.length > 0 ? 'Monitoring Active' : 'Check for Monitoring'}
+                  </p>
+                  <p className="text-xs text-neutral-600 mb-3">
+                    {monitoringJobs.length > 0 
+                      ? 'Click refresh to check for status updates and see if your autonomous purchase has completed.'
+                      : 'After setting up monitoring via chat, click refresh to see your active monitoring jobs.'}
+                  </p>
+                  <button
+                    onClick={fetchMonitoringJobs}
+                    disabled={refreshingJobs}
+                    className="btn-primary text-xs py-2 px-4 flex items-center gap-2"
+                  >
+                    <svg
+                      className={`w-4 h-4 ${refreshingJobs ? 'animate-spin' : ''}`}
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                      />
+                    </svg>
+                    {refreshingJobs ? 'Refreshing...' : 'Refresh Status'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* Monitoring Header */}
             {monitoringJobs.length > 0 && (
               <div className="modern-card p-4">
@@ -201,7 +285,7 @@ export default function Home() {
             )}
 
             {/* Orders Section */}
-            <OrdersSection userId={userId} />
+            <OrdersSection userId={userId} onPaymentComplete={ordersRefreshRef} />
           </div>
         </div>
 

@@ -31,8 +31,8 @@
 │                     AWS INFRASTRUCTURE                                          │
 │  ┌──────────────────────────────────────────────────────────────────────────┐  │
 │  │  Application Load Balancer (ALB)                                          │  │
-│  │  ├─ Route 53 DNS                                                          │  │
-│  │  ├─ HTTPS/HTTP Routing                                                    │  │
+│  │  ├─ CloudFront CDN (optional)                                            │  │
+│  │  ├─ HTTP Routing                                                         │  │
 │  │  └─ Health Checks                                                          │  │
 │  └────────────────────┬─────────────────────────────────────────────────────┘  │
 │                       │                                                          │
@@ -40,8 +40,7 @@
 │  │  ECS Fargate Service                                                      │  │
 │  │  ┌──────────────────────────────────────────────────────────────────────┐│  │
 │  │  │  Docker Container                                                     ││  │
-│  │  │  ├─ Frontend Static Files (from Vite build)                          ││  │
-│  │  │  └─ Backend Application (FastAPI on :8000)                           ││  │
+│  │  │  └─ Backend API (FastAPI on :8000)                                  ││  │
 │  │  └──────────────────────────────────────────────────────────────────────┘│  │
 │  └──────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                  │
@@ -281,13 +280,13 @@
 - **Amazon Bedrock**: Claude model inference
 - **EC2 Container Registry (ECR)**: Docker image hosting
 - **ECS Fargate**: Containerized backend deployment
-- **Application Load Balancer (ALB)**: HTTP/HTTPS routing
+- **Application Load Balancer (ALB)**: HTTP routing
+- **CloudFront**: CDN and HTTPS termination (optional)
 - **CloudWatch**: Logging and monitoring
 - **VPC**: Network isolation
-- **Route 53**: DNS management (HTTPS configuration)
 
 ### Deployment
-- Docker (multi-stage Dockerfile for frontend + backend)
+- Docker (backend-only.Dockerfile for backend API)
 - ECS Fargate (serverless container orchestration)
 - Bash deployment scripts
 
@@ -478,7 +477,6 @@ Background Monitoring Loop (every 10 sec demo / 5 min prod)
 ```
 ECS Fargate Service
 ├─ Container (Docker)
-│  ├─ Frontend (React/Vite) → Served as static from backend
 │  ├─ Backend API (FastAPI on port 8000)
 │  └─ SQLite database (ephemeral in container)
 │
@@ -489,9 +487,9 @@ ECS Fargate Service
 │  └─ Environment variables (AWS_REGION, MODEL_ID, secrets)
 │
 └─ Application Load Balancer
-   ├─ HTTP/HTTPS routing
+   ├─ HTTP routing
    ├─ Target group health checks
-   └─ Route 53 DNS integration
+   └─ CloudFront integration (optional)
 
 CloudWatch
 ├─ Log group: /ecs/ghostcart-backend
@@ -499,11 +497,11 @@ CloudWatch
 ```
 
 ### Dockerization
-- **Multi-stage Dockerfile**:
-  1. Frontend builder stage (Node 18 + Vite build)
-  2. Backend stage (Python 3.11 + dependencies)
-  3. Combines frontend dist with backend code
-  4. Runs on port 8000
+- **Backend-only Dockerfile** (`backend-only.Dockerfile`):
+  1. Python 3.11 slim base image
+  2. Installs backend dependencies
+  3. Copies backend code
+  4. Runs FastAPI on port 8000
 
 ### Database Persistence
 - SQLite with WAL mode enabled for concurrent access
@@ -822,9 +820,9 @@ ap2-hack/
 │   │   └── App.jsx
 │   └── package.json
 ├── infrastructure/
-│   ├── deploy-ecs.sh
-│   ├── config.sh
-│   └── configure-https-route53.sh
-├── ecs-task-definition.json
-└── Dockerfile
+│   ├── ecs-setup.sh
+│   ├── configure-cloudfront.sh
+│   └── config.sh
+├── backend-only.Dockerfile
+└── ecs-task-definition.json
 ```

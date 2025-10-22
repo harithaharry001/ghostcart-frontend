@@ -218,7 +218,7 @@ def register_price_drop(product_query: str, target_price_cents: int) -> None:
     }
     logger.info(
         f"📉 DEMO: Price drop registered for '{product_query}' "
-        f"to ${target_price_cents/100:.2f} (drops in 45 seconds)"
+        f"to ${target_price_cents/100:.2f} (drops in 20 seconds)"
     )
 
 
@@ -248,10 +248,10 @@ def _apply_demo_price_drop(product: Product, query: Optional[str]) -> int:
             drop_query in product.name.lower() or
             drop_query in product.description.lower()):
 
-            # Check if 10 seconds have passed since activation (demo mode)
+            # Check if 20 seconds have passed since activation (demo mode)
             elapsed = (datetime.utcnow() - drop_info["activated_at"]).total_seconds()
 
-            if elapsed >= 10:
+            if elapsed >= 20:
                 target_price = drop_info["target_price_cents"]
                 if product.price_cents > target_price:
                     logger.info(

@@ -9,13 +9,14 @@
  * - Status badges (authorized/declined)
  * - Expandable mandate chain for each transaction
  * - AP2 compliance transparency
+ * - Automatic refresh on payment completion (SSE events)
  */
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import MandateChainFlow from './MandateChainFlow';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
-export default function OrdersSection({ userId }) {
+export default function OrdersSection({ userId, onPaymentComplete }) {
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -24,37 +25,51 @@ export default function OrdersSection({ userId }) {
   const [loadingChain, setLoadingChain] = useState(false);
 
   /**
-   * Fetch user transactions
+   * Fetch user transactions (wrapped in useCallback for external use)
    */
-  useEffect(() => {
-    const fetchTransactions = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch(`${API_BASE_URL}/transactions/user/${userId}`);
+  const fetchTransactions = useCallback(async () => {
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch transactions');
-        }
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/transactions/user/${userId}`);
 
-        const data = await response.json();
-        // API returns { transactions: [...] }, extract the array
-        setTransactions(data.transactions || []);
-        setError(null);
-      } catch (err) {
-        console.error('Error fetching transactions:', err);
-        setError(err.message);
-      } finally {
-        setLoading(false);
+      if (!response.ok) {
+        throw new Error('Failed to fetch transactions');
       }
-    };
 
-    if (userId) {
-      fetchTransactions();
-    } else {
-      // If no userId, stop loading immediately
+      const data = await response.json();
+      // API returns { transactions: [...] }, extract the array
+      setTransactions(data.transactions || []);
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching transactions:', err);
+      setError(err.message);
+    } finally {
       setLoading(false);
     }
   }, [userId]);
+
+  /**
+   * Initial fetch on mount
+   */
+  useEffect(() => {
+    fetchTransactions();
+  }, [fetchTransactions]);
+
+  /**
+   * Listen for payment completion events to auto-refresh
+   */
+  useEffect(() => {
+    if (onPaymentComplete) {
+      // Parent component will call this when payment completes
+      // This allows Home.jsx to trigger refresh via SSE events
+      return;
+    }
+  }, [onPaymentComplete]);
 
   /**
    * Load mandate chain for a transaction
@@ -110,27 +125,20 @@ export default function OrdersSection({ userId }) {
   };
 
   /**
-   * Refresh transactions manually
+   * Refresh transactions manually (reuses fetchTransactions)
    */
-  const refreshTransactions = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/transactions/user/${userId}`);
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch transactions');
-      }
-
-      const data = await response.json();
-      setTransactions(data.transactions || []);
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching transactions:', err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+  const refreshTransactions = () => {
+    fetchTransactions();
   };
+
+  /**
+   * Expose refresh function to parent via callback
+   */
+  useEffect(() => {
+    if (onPaymentComplete) {
+      onPaymentComplete.current = fetchTransactions;
+    }
+  }, [onPaymentComplete, fetchTransactions]);
 
   return (
     <div className="space-y-4">
@@ -160,6 +168,18 @@ export default function OrdersSection({ userId }) {
           </button>
         </div>
         <span className="badge badge-info">{transactions.length} order{transactions.length !== 1 ? 's' : ''}</span>
+      </div>
+
+      {/* Refresh Info Banner */}
+      <div className="modern-card p-3 bg-primary/5 border-primary/20">
+        <div className="flex items-start gap-2">
+          <svg className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-xs text-secondary">
+            <strong>After HP purchase or HNP autonomous purchase:</strong> Click the refresh button above to see your new order
+          </p>
+        </div>
       </div>
 
       {/* Loading State */}

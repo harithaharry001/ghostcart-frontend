@@ -2,8 +2,8 @@
  * GhostCart App
  * AP2-compliant mandate-based payment demonstration
  *
- * Note: SSEProvider removed - ChatInterface now manages its own EventSource connection
- * via the unified /api/chat/stream endpoint
+ * Note: SSE events are handled through ChatInterface's /api/chat/stream connection
+ * No separate SSEProvider needed
  */
 import React from 'react';
 import { SessionProvider } from './context/SessionContext';
