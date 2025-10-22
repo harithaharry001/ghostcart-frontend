@@ -167,8 +167,29 @@ aws cloudfront wait distribution-deployed --id $DISTRIBUTION_ID
 
 echo -e "${GREEN}✓ CloudFront distribution deployed!${NC}"
 
-# Step 3: Test the endpoint
-echo -e "\n${YELLOW}Step 3: Testing HTTPS endpoint...${NC}"
+# Step 3: Create initial cache invalidation
+echo -e "\n${YELLOW}Step 3: Creating initial cache invalidation...${NC}"
+echo -e "${YELLOW}This ensures CloudFront starts with fresh content${NC}"
+
+INVALIDATION_OUTPUT=$(aws cloudfront create-invalidation \
+    --distribution-id $DISTRIBUTION_ID \
+    --paths "/*" \
+    --output json)
+
+INVALIDATION_ID=$(echo $INVALIDATION_OUTPUT | jq -r '.Invalidation.Id')
+
+echo -e "${GREEN}✓ Cache invalidation created${NC}"
+echo -e "  Invalidation ID: $INVALIDATION_ID"
+echo -e "${YELLOW}Waiting for invalidation to complete (2-3 minutes)...${NC}"
+
+aws cloudfront wait invalidation-completed \
+    --distribution-id $DISTRIBUTION_ID \
+    --id $INVALIDATION_ID
+
+echo -e "${GREEN}✓ Cache invalidation completed!${NC}"
+
+# Step 4: Test the endpoint
+echo -e "\n${YELLOW}Step 4: Testing HTTPS endpoint...${NC}"
 
 sleep 5
 
@@ -179,6 +200,7 @@ if [ "$HTTP_CODE" == "200" ]; then
 else
     echo -e "${YELLOW}⚠️  Endpoint returned HTTP $HTTP_CODE${NC}"
     echo -e "${YELLOW}This is normal if your backend isn't running yet${NC}"
+    echo -e "${YELLOW}Try again in a few minutes or check your backend logs${NC}"
 fi
 
 # Summary
