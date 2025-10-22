@@ -14,10 +14,17 @@ NC='\033[0m'
 echo -e "${GREEN}🏗️  GhostCart ECS Infrastructure Setup${NC}"
 echo "========================================"
 
-# Configuration
+# Load existing configuration if available
+if [ -f infrastructure/config.sh ]; then
+    echo -e "${YELLOW}📋 Loading existing configuration from config.sh...${NC}"
+    source infrastructure/config.sh
+    echo -e "${GREEN}✓ Configuration loaded${NC}"
+fi
+
+# Configuration (use existing or defaults)
 AWS_REGION="${AWS_REGION:-us-east-1}"
-CLUSTER_NAME="ghostcart-cluster"
-SERVICE_NAME="ghostcart-backend-service"
+CLUSTER_NAME="${CLUSTER_NAME:-ghostcart-cluster}"
+SERVICE_NAME="${SERVICE_NAME:-ghostcart-backend-service}"
 ALB_NAME="ghostcart-alb"
 TARGET_GROUP_NAME="ghostcart-tg"
 
@@ -35,15 +42,27 @@ if [ "$VPC_ID" == "None" ] || [ -z "$VPC_ID" ]; then
 fi
 echo -e "${GREEN}✓ Using VPC: $VPC_ID${NC}"
 
-# Get subnets
-echo -e "\n${YELLOW}Getting subnets...${NC}"
-SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" --region $AWS_REGION --query 'Subnets[*].SubnetId' --output text)
-SUBNET_1=$(echo $SUBNETS | awk '{print $1}')
-SUBNET_2=$(echo $SUBNETS | awk '{print $2}')
-
+# Get public subnets (only if not already configured)
 if [ -z "$SUBNET_1" ] || [ -z "$SUBNET_2" ]; then
-    echo -e "${RED}❌ Need at least 2 subnets. Found: $SUBNETS${NC}"
-    exit 1
+    echo -e "\n${YELLOW}Getting public subnets...${NC}"
+
+    # Get subnets with public IP auto-assignment enabled (public subnets)
+    PUBLIC_SUBNETS=$(aws ec2 describe-subnets \
+        --filters "Name=vpc-id,Values=$VPC_ID" "Name=map-public-ip-on-launch,Values=true" \
+        --region $AWS_REGION \
+        --query 'Subnets[*].SubnetId' \
+        --output text)
+
+    SUBNET_1=$(echo $PUBLIC_SUBNETS | awk '{print $1}')
+    SUBNET_2=$(echo $PUBLIC_SUBNETS | awk '{print $2}')
+
+    if [ -z "$SUBNET_1" ] || [ -z "$SUBNET_2" ]; then
+        echo -e "${RED}❌ Need at least 2 public subnets. Found: $PUBLIC_SUBNETS${NC}"
+        echo -e "${YELLOW}💡 Tip: Public subnets have 'MapPublicIpOnLaunch' enabled${NC}"
+        exit 1
+    fi
+else
+    echo -e "\n${YELLOW}Using subnets from config.sh...${NC}"
 fi
 echo -e "${GREEN}✓ Using subnets: $SUBNET_1, $SUBNET_2${NC}"
 

@@ -14,16 +14,29 @@ NC='\033[0m'
 echo -e "${GREEN}🚀 GhostCart ECS Fargate Deployment${NC}"
 echo "===================================="
 
-# Configuration
+# Load existing infrastructure configuration
+if [ -f infrastructure/config.sh ]; then
+    echo -e "${YELLOW}📋 Loading infrastructure configuration...${NC}"
+    source infrastructure/config.sh
+    echo -e "${GREEN}✓ Configuration loaded${NC}"
+else
+    echo -e "${YELLOW}⚠️  config.sh not found, using defaults${NC}"
+fi
+
+# Configuration (use existing or defaults)
 AWS_REGION="${AWS_REGION:-us-east-1}"
 ECR_REPOSITORY="ghostcart-backend"
-CLUSTER_NAME="ghostcart-cluster"
-SERVICE_NAME="ghostcart-backend-service"
+CLUSTER_NAME="${CLUSTER_NAME:-ghostcart-cluster}"
+SERVICE_NAME="${SERVICE_NAME:-ghostcart-backend-service}"
 TASK_FAMILY="ghostcart-backend"
 
-# Get AWS Account ID
-echo -e "\n${YELLOW}Getting AWS account ID...${NC}"
-AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+# Get AWS Account ID (from config or query)
+if [ -z "$AWS_ACCOUNT_ID" ]; then
+    echo -e "\n${YELLOW}Getting AWS account ID...${NC}"
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+else
+    echo -e "\n${YELLOW}Using AWS account ID from config...${NC}"
+fi
 echo -e "${GREEN}✓ AWS Account ID: $AWS_ACCOUNT_ID${NC}"
 
 # Create ECR repository if it doesn't exist
@@ -106,18 +119,28 @@ else
     exit 1
 fi
 
-# Get ALB DNS name
-echo -e "\n${YELLOW}Getting ALB endpoint...${NC}"
-ALB_DNS=$(aws elbv2 describe-load-balancers \
-    --names ghostcart-alb \
-    --region $AWS_REGION \
-    --query 'LoadBalancers[0].DNSName' \
-    --output text 2>/dev/null || echo "")
+# Get ALB DNS name (from config or query)
+if [ -z "$ALB_DNS" ]; then
+    echo -e "\n${YELLOW}Getting ALB endpoint...${NC}"
+    ALB_DNS=$(aws elbv2 describe-load-balancers \
+        --names ghostcart-alb \
+        --region $AWS_REGION \
+        --query 'LoadBalancers[0].DNSName' \
+        --output text 2>/dev/null || echo "")
+else
+    echo -e "\n${YELLOW}Using ALB endpoint from config...${NC}"
+fi
 
-if [ -n "$ALB_DNS" ]; then
+if [ -n "$ALB_DNS" ] && [ "$ALB_DNS" != "None" ]; then
     echo -e "\n${GREEN}✅ Deployment complete!${NC}"
     echo -e "${GREEN}🌐 Backend API: http://$ALB_DNS${NC}"
     echo -e "${GREEN}🏥 Health check: http://$ALB_DNS/api/health${NC}"
+
+    # Show CloudFront URL if available
+    if [ -n "$CLOUDFRONT_DOMAIN" ]; then
+        echo -e "${GREEN}🔒 CloudFront HTTPS: https://$CLOUDFRONT_DOMAIN${NC}"
+    fi
+
     echo -e "\n${YELLOW}Note: It may take 2-3 minutes for the service to become healthy${NC}"
 else
     echo -e "\n${GREEN}✅ Deployment complete!${NC}"

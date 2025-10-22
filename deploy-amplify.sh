@@ -16,7 +16,7 @@ echo "===================================="
 
 # Configuration
 AWS_REGION="${AWS_REGION:-us-east-1}"
-APP_NAME="ghostcart-frontend"
+APP_NAME="strands-ap2-payment-agent"
 BRANCH_NAME="main"
 REPO_URL="git@github.com:harithaharry001/ghostcart-frontend.git"
 
